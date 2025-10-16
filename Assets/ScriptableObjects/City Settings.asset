@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d24e1fcb2df9c1940b8655edb5a37245, type: 3}
+  m_Name: City Settings
+  m_EditorClassIdentifier: Assembly-CSharp::CitySettings
+  growthMode: 0
+  seed: 12345
+  roadCount: 200
+  roadLength: 30
+  minSlope: 10
+  densityFalloff: 0.3
+  densityScale: 0.5
+  roadPrefab: {fileID: 1995279922325468205, guid: 4988d806bae109344adeb4e03a39f4e5, type: 3}
+  buildingPrefab: {fileID: 1995279922325468205, guid: 9be4e53c3fe2ea14c9c940c3b35c337b, type: 3}
