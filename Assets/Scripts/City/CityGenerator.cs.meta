@@ -1,2 +1,16 @@
 fileFormatVersion: 2
 guid: bc7ca863c6a1ac342899f17a6d7054b4
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - terrainGenerator: {instanceID: 0}
+  - buildingPrefab: {instanceID: 0}
+  - roadPrefab: {fileID: 6083251068355565048, guid: 319c379c73047f54589252b909fc6e13, type: 3}
+  - root: {instanceID: 0}
+  - roadMaterial: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
