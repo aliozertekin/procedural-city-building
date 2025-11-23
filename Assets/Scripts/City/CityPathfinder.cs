@@ -199,6 +199,9 @@ public class CityPathfinder : MonoBehaviour
 
         foreach (var seg in roadSegments)
         {
+            if (IsSegmentBlocked(seg))
+                continue;
+
             if (!graph.ContainsKey(seg.start))
                 graph[seg.start] = new List<Vector3>();
             if (!graph.ContainsKey(seg.end))
@@ -211,6 +214,33 @@ public class CityPathfinder : MonoBehaviour
         return graph;
     }
 
+    // -----------------------------
+    //  Roadblock check
+    // -----------------------------
+    private bool IsSegmentBlocked(RoadSegment seg)
+    {
+        if (generator == null || generator.roadBlocks == null) return false;
+
+        Vector3 mid = (seg.start + seg.end) * 0.5f;
+
+        foreach (var block in generator.roadBlocks)
+        {
+            if (block == null) continue;
+
+            // use the roadblock's stored position and radius
+            float blockRadius = block.radius;
+            // also consider road width to be safe
+            float roadWidth = 0f;
+            if (generator != null) roadWidth = generator.GetRoadWidth();
+
+            float threshold = blockRadius + (roadWidth * 0.5f);
+
+            if (Vector3.Distance(mid, block.position) <= threshold)
+                return true;
+        }
+
+        return false;
+    }
 
     // -----------------------------
     //  Input Handling (New Input System)

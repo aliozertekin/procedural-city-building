@@ -13,6 +13,7 @@ public class CityGenerator : MonoBehaviour
     public int seed = 12345;
     public Vector2 citySize = new Vector2(200, 200);
     public GameObject roadPrefab;
+    public GameObject roadblockPrefab;
     public Transform root;
     public Material roadMaterial;
     public float roadWidth = 2f;
@@ -28,6 +29,11 @@ public class CityGenerator : MonoBehaviour
     public float densityFalloffPower = 1.2f;
     [Range(0f, 1f)] public float densityNoiseStrength = 0.25f;
     public float densityNoiseScale = 0.01f;
+
+    [Header("Roadblocks")]
+    public int numRoadblocks = 10;
+    public float roadBlockMinSpacing = 6f;
+    public float roadBlockRadius = 2f;
 
     private System.Random rng;
     private List<GameObject> generated = new List<GameObject>();
@@ -47,6 +53,18 @@ public class CityGenerator : MonoBehaviour
             segments.Add(new RoadSegment { start = seg.a, end = seg.b, id = seg.id });
         return segments;
     }
+
+    [System.Serializable]
+    public class RoadBlock
+    {
+        public Vector3 position;
+        public float radius;
+        public int segmentId;
+        public GameObject instance;
+    }
+
+    [Header("Runtime Roadblocks (read-only)")]
+    public List<RoadBlock> roadBlocks = new List<RoadBlock>();
 
     public Vector3 GetTerrainCenter() => terrainCenterOffset;
     public float GetRoadWidth() => roadWidth;
@@ -88,6 +106,13 @@ public class CityGenerator : MonoBehaviour
 
         Debug.Log($"CityGenerator: Starting grid generation seed={seed} size={citySize}");
         GenerateGridCity();
+
+        if (roadblockPrefab != null && numRoadblocks > 0)
+        {
+            GenerateRoadblocks(numRoadblocks);
+            Debug.Log($"CityGenerator: Roadblocks generated: {roadBlocks.Count}");
+        }
+
         Debug.Log($"CityGenerator: Finished. Roads={roadCount} Buildings={buildingCount}");
     }
 
@@ -106,9 +131,19 @@ public class CityGenerator : MonoBehaviour
         }
         generated.Clear();
         roadSegments.Clear();
+
+        foreach (var rb in roadBlocks)
+        {
+            if (rb.instance != null)
+#if UNITY_EDITOR
+                DestroyImmediate(rb.instance);
+#else
+                Destroy(rb.instance);
+#endif
+        }
+        roadBlocks.Clear();
     }
 
-    #region Utilities
     private void CreateDefaultRoadMaterial()
     {
         Shader shader = Shader.Find("Standard");
@@ -121,13 +156,10 @@ public class CityGenerator : MonoBehaviour
 
     private Vector3 ToTerrainCentered(Vector3 local) => terrainCenterOffset + local;
     private float SampleTerrainHeight(Vector3 worldPos) => terrain.SampleHeight(worldPos) + terrain.GetPosition().y;
-    private float SampleTerrainSlope(Vector3 worldPos)
-    {
-        Vector3 normal = terrain.terrainData.GetInterpolatedNormal(
-            (worldPos.x - terrain.GetPosition().x) / terrain.terrainData.size.x,
-            (worldPos.z - terrain.GetPosition().z) / terrain.terrainData.size.z);
-        return Vector3.Angle(normal, Vector3.up);
-    }
+
+    // -------------------------------
+    // ROAD CREATION
+    // -------------------------------
 
     private GameObject CreateRoadObject(Vector3 a, Vector3 b, float width)
     {
@@ -153,8 +185,10 @@ public class CityGenerator : MonoBehaviour
 
         road.transform.position = (a + b) * 0.5f;
         Vector3 delta = b - a;
+
         road.transform.rotation = Quaternion.LookRotation(delta.normalized, Vector3.up);
         road.transform.Rotate(-180f, 0f, 0f);
+
         road.transform.localScale = new Vector3(width * 0.25f, 0.01f, delta.magnitude * 0.115f);
 
         var mr = road.GetComponent<MeshRenderer>();
@@ -181,6 +215,10 @@ public class CityGenerator : MonoBehaviour
             roadSegments.Add(new RoadSeg(points[i], points[i + 1], roadCount - 1));
         }
     }
+
+    // -------------------------------
+    // BUILDINGS
+    // -------------------------------
 
     private float PopulationDensity(Vector3 worldPos)
     {
@@ -218,11 +256,9 @@ public class CityGenerator : MonoBehaviour
             GameObject sel = filtered[rng.Next(filtered.Count)];
             GameObject b = Instantiate(sel, pos, rotation ?? Quaternion.identity, root);
 
-            // --- Scale down the building randomly between 80% and 100% ---
             float scaleFactor = RandomRange(0.8f, 1f);
             b.transform.localScale *= scaleFactor;
 
-            // --- Add Random Rotation --- 
             if (rotation == null)
             {
                 float yRot = rng.Next(0, 4) * 90f;
@@ -231,8 +267,9 @@ public class CityGenerator : MonoBehaviour
 
             Bounds bBounds = GetBounds(b);
 
-            // --- Check placement validity ---
-            if (!IsInsideTerrain(bBounds) || IsCollidingRoad(bBounds) || IsCollidingBuildings(bBounds))
+            if (!IsInsideTerrain(bBounds) ||
+                IsCollidingRoad(bBounds) ||
+                IsCollidingBuildings(bBounds))
             {
                 DestroyImmediate(b);
                 pos.x += RandomRange(-gridBlockSize * 0.3f, gridBlockSize * 0.3f);
@@ -248,7 +285,6 @@ public class CityGenerator : MonoBehaviour
 
         return null;
     }
-
 
     private Bounds GetBounds(GameObject obj)
     {
@@ -296,9 +332,89 @@ public class CityGenerator : MonoBehaviour
     }
 
     private float RandomRange(float a, float b) => (float)(rng.NextDouble() * (b - a) + a);
-    #endregion
 
-    #region Grid Generator
+    // -------------------------------
+    // ROADBLOCK GENERATION (UPDATED)
+    // -------------------------------
+
+    private void GenerateRoadblocks(int count)
+    {
+        roadBlocks.Clear();
+        if (roadSegments.Count == 0 || roadblockPrefab == null) return;
+
+        int placed = 0, attempts = 0;
+        int maxAttempts = Mathf.Max(200, count * 10);
+
+        while (placed < count && attempts < maxAttempts)
+        {
+            attempts++;
+
+            var seg = roadSegments[rng.Next(roadSegments.Count)];
+
+            // Midpoint of segment
+            Vector3 mid = (seg.a + seg.b) * 0.5f;
+
+            // Raycast: get exact road height + normal
+            RaycastHit hit;
+            Vector3 rayStart = mid + Vector3.up * 10f;
+
+            bool hitRoad = Physics.Raycast(
+                rayStart,
+                Vector3.down,
+                out hit,
+                40f,
+                LayerMask.GetMask("Road")
+            );
+
+            Vector3 finalPos = mid;
+            Quaternion finalRot;
+
+            if (hitRoad)
+            {
+                finalPos = hit.point;
+
+                // Road forward direction
+                Vector3 forward = (seg.b - seg.a).normalized;
+
+                // Look forward, standing on road slope
+                finalRot = Quaternion.LookRotation(forward, hit.normal);
+
+                // Apply Y -90° rotation offset
+                finalRot *= Quaternion.Euler(0f, -90f, 0f);
+            }
+            else
+            {
+                // Fallback flat case
+                finalPos.y = SampleTerrainHeight(mid);
+
+                // Rotate forward then -90° Y
+                finalRot = Quaternion.LookRotation(seg.b - seg.a) * Quaternion.Euler(0f, -90f, 0f);
+            }
+
+            // Slight lift
+            finalPos += Vector3.up * 0.75f;
+
+            // Instantiate, keep original scale
+            GameObject go = Instantiate(roadblockPrefab, finalPos, finalRot, root);
+            go.name = $"RoadBlock_{placed}";
+
+            roadBlocks.Add(new RoadBlock
+            {
+                position = finalPos,
+                radius = roadBlockRadius,
+                segmentId = seg.id,
+                instance = go
+            });
+
+            placed++;
+        }
+    }
+
+
+    // -------------------------------
+    // GRID GENERATION
+    // -------------------------------
+
     private void GenerateGridCity()
     {
         int cols = Mathf.CeilToInt(citySize.x / gridBlockSize);
@@ -316,25 +432,21 @@ public class CityGenerator : MonoBehaviour
                 gridPoints[i, j] = world;
             }
 
-        // Roads along columns (vertical)
         for (int i = 0; i <= cols; i++)
         {
             int j = 0;
             while (j < rows)
             {
-                // Random segment length (1-3 blocks)
                 int segmentLength = rng.Next(1, 4);
                 int endJ = Mathf.Min(j + segmentLength, rows);
 
                 for (int k = j; k < endJ; k++)
                     CreateCurvedRoad(gridPoints[i, k], gridPoints[i, k + 1], roadWidth);
 
-                // Random gap (0-1 blocks)
                 j = endJ + rng.Next(0, 2);
             }
         }
 
-        // Roads along rows (horizontal)
         for (int j = 0; j <= rows; j++)
         {
             int i = 0;
@@ -346,29 +458,34 @@ public class CityGenerator : MonoBehaviour
                 for (int k = i; k < endI; k++)
                     CreateCurvedRoad(gridPoints[k, j], gridPoints[k + 1, j], roadWidth);
 
-                i = endI + rng.Next(0, 2); // gap
+                i = endI + rng.Next(0, 2);
             }
         }
 
-        // Buildings
         for (int i = 0; i < cols; i++)
             for (int j = 0; j < rows; j++)
             {
                 Vector3 center = (gridPoints[i, j] + gridPoints[i + 1, j + 1]) * 0.5f;
-                if (rng.NextDouble() > (0.3 + 0.7 * PopulationDensity(center))) continue;
+
+                if (rng.NextDouble() > (0.3 + 0.7 * PopulationDensity(center)))
+                    continue;
 
                 float margin = (roadWidth + 2f) * 0.5f;
                 Vector3 blockMin = gridPoints[i, j] + new Vector3(margin, 0, margin);
                 Vector3 blockMax = gridPoints[i + 1, j + 1] - new Vector3(margin, 0, margin);
 
-                for (int k = 0; k < 5; k++)
+                for (int attempt = 0; attempt < 5; attempt++)
                 {
-                    Vector3 randomPos = new Vector3(RandomRange(blockMin.x, blockMax.x), 0, RandomRange(blockMin.z, blockMax.z));
+                    Vector3 randomPos = new Vector3(
+                        RandomRange(blockMin.x, blockMax.x),
+                        0,
+                        RandomRange(blockMin.z, blockMax.z));
+
                     randomPos.y = SampleTerrainHeight(randomPos);
-                    if (CreateBuilding(randomPos) != null) break;
+
+                    if (CreateBuilding(randomPos) != null)
+                        break;
                 }
             }
     }
-
-    #endregion
 }
