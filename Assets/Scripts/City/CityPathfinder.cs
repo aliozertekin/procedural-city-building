@@ -7,6 +7,10 @@ using static CityGenerator;
 using UnityEditor;
 #endif
 
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
 [ExecuteAlways]
 public class CityPathfinder : MonoBehaviour
 {
@@ -22,16 +26,18 @@ public class CityPathfinder : MonoBehaviour
     private List<Vector3> pathPoints = new List<Vector3>();
     private List<RoadSegment> roadSegments = new List<RoadSegment>();
     private Dictionary<Vector3, List<Vector3>> graph = new Dictionary<Vector3, List<Vector3>>();
+    private Camera mainCam;
 
     [Header("Gizmo Settings")]
     public float lineHeight = 3f;
     public float lineWidth = 0.3f;
     public Color pathColor = Color.red;
+    public float sphereRadius = 2f;
 
     void OnValidate()
     {
         if (generator == null)
-            generator = FindObjectOfType<CityGenerator>();
+            generator = Object.FindFirstObjectByType<CityGenerator>();
     }
 
     void OnEnable()
@@ -41,6 +47,11 @@ public class CityPathfinder : MonoBehaviour
 
     void Update()
     {
+        if (mainCam == null)
+            mainCam = Camera.main;
+
+        HandleKeyInput();
+
         if (!Application.isPlaying && autoUpdate)
             GeneratePath();
     }
@@ -95,46 +106,6 @@ public class CityPathfinder : MonoBehaviour
             Debug.LogWarning("CityPathfinder: Failed to generate path!");
     }
 
-    [ContextMenu("Randomize Start/End")]
-    public void RandomizePoints()
-    {
-        if (roadSegments == null || roadSegments.Count == 0)
-        {
-            LoadRoads();
-            if (roadSegments.Count == 0)
-            {
-                Debug.LogWarning("CityPathfinder: No roads to randomize from!");
-                return;
-            }
-        }
-
-        var rnd = new System.Random();
-        var segA = roadSegments[rnd.Next(roadSegments.Count)];
-        var segB = roadSegments[rnd.Next(roadSegments.Count)];
-
-        Vector3 randomA = (rnd.NextDouble() < 0.5) ? segA.start : segA.end;
-        Vector3 randomB = (rnd.NextDouble() < 0.5) ? segB.start : segB.end;
-
-        if (startPoint == null)
-        {
-            GameObject startObj = new GameObject("StartPoint");
-            startObj.transform.parent = transform;
-            startPoint = startObj.transform;
-        }
-
-        if (endPoint == null)
-        {
-            GameObject endObj = new GameObject("EndPoint");
-            endObj.transform.parent = transform;
-            endPoint = endObj.transform;
-        }
-
-        startPoint.position = randomA + Vector3.up * 2;
-        endPoint.position = randomB + Vector3.up * 2;
-
-        Debug.Log("CityPathfinder: Randomized start and end points.");
-    }
-
     [ContextMenu("Clear Path")]
     public void ClearPath()
     {
@@ -182,10 +153,7 @@ public class CityPathfinder : MonoBehaviour
         return new List<Vector3>();
     }
 
-    private float Heuristic(Vector3 a, Vector3 b)
-    {
-        return Vector3.Distance(a, b);
-    }
+    private float Heuristic(Vector3 a, Vector3 b) => Vector3.Distance(a, b);
 
     private List<Vector3> ReconstructPath(Dictionary<Vector3, Vector3> cameFrom, Vector3 current)
     {
@@ -206,26 +174,24 @@ public class CityPathfinder : MonoBehaviour
         float minDist = float.MaxValue;
         Vector3 closest = position;
 
+        // Use all road segment endpoints
         foreach (var seg in roadSegments)
         {
-            float da = Vector3.Distance(position, seg.start);
-            float db = Vector3.Distance(position, seg.end);
-
-            if (da < minDist)
+            Vector3[] endpoints = { seg.start, seg.end };
+            foreach (var pt in endpoints)
             {
-                minDist = da;
-                closest = seg.start;
-            }
-
-            if (db < minDist)
-            {
-                minDist = db;
-                closest = seg.end;
+                float dist = Vector3.Distance(position, pt);
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    closest = pt;
+                }
             }
         }
 
         return closest;
     }
+
 
     private Dictionary<Vector3, List<Vector3>> BuildGraph()
     {
@@ -245,28 +211,112 @@ public class CityPathfinder : MonoBehaviour
         return graph;
     }
 
+
     // -----------------------------
-    //  Gizmos (Draw only shortest path)
+    //  Input Handling (New Input System)
+    // -----------------------------
+    private void HandleKeyInput()
+    {
+#if ENABLE_INPUT_SYSTEM
+        if (Keyboard.current == null || roadSegments == null || roadSegments.Count == 0) return;
+        if (mainCam == null) return;
+
+        Vector3? nearestPoint = GetNearestRoadPointToMouse();
+
+        if (nearestPoint.HasValue)
+        {
+            if (Keyboard.current.bKey.wasPressedThisFrame)
+            {
+                if (startPoint == null)
+                {
+                    GameObject go = new GameObject("StartPoint");
+                    go.transform.parent = transform;
+                    startPoint = go.transform;
+                }
+                startPoint.position = nearestPoint.Value + Vector3.up * 2f;
+                Debug.Log("CityPathfinder: Start point set.");
+            }
+
+            if (Keyboard.current.nKey.wasPressedThisFrame)
+            {
+                if (endPoint == null)
+                {
+                    GameObject go = new GameObject("EndPoint");
+                    go.transform.parent = transform;
+                    endPoint = go.transform;
+                }
+                endPoint.position = nearestPoint.Value + Vector3.up * 2f;
+                Debug.Log("CityPathfinder: End point set.");
+            }
+        }
+
+        if (Keyboard.current.mKey.wasPressedThisFrame)
+        {
+            GeneratePath();
+        }
+#endif
+    }
+
+    private Vector3? GetNearestRoadPointToMouse()
+    {
+#if ENABLE_INPUT_SYSTEM
+        if (Mouse.current == null || mainCam == null || roadSegments == null || roadSegments.Count == 0) return null;
+
+        Vector3 mousePos = Mouse.current.position.ReadValue();
+        Ray ray = mainCam.ScreenPointToRay(mousePos);
+        Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
+
+        if (groundPlane.Raycast(ray, out float enter))
+        {
+            Vector3 hit = ray.GetPoint(enter);
+
+            float minDist = float.MaxValue;
+            Vector3 closest = hit;
+
+            foreach (var seg in roadSegments)
+            {
+                float da = Vector3.Distance(hit, seg.start);
+                float db = Vector3.Distance(hit, seg.end);
+
+                if (da < minDist)
+                {
+                    minDist = da;
+                    closest = seg.start;
+                }
+
+                if (db < minDist)
+                {
+                    minDist = db;
+                    closest = seg.end;
+                }
+            }
+
+            return closest;
+        }
+#endif
+        return null;
+    }
+
+    // -----------------------------
+    //  Gizmos
     // -----------------------------
     void OnDrawGizmos()
     {
         if (!drawGizmos) return;
 
 #if UNITY_EDITOR
-        // Draw Start/End points
         if (startPoint != null)
         {
             Gizmos.color = Color.green;
-            Gizmos.DrawSphere(startPoint.position, 3f);
+            Gizmos.DrawSphere(startPoint.position, sphereRadius);
         }
 
         if (endPoint != null)
         {
-            Gizmos.color = Color.red;
-            Gizmos.DrawSphere(endPoint.position, 3f);
+            Gizmos.color = Color.blue;
+            Gizmos.DrawSphere(endPoint.position, sphereRadius);
         }
 
-        // Draw only shortest path, elevated and thick
         if (pathPoints != null && pathPoints.Count > 1)
         {
             Handles.color = pathColor;

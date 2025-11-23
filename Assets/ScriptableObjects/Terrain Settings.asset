@@ -13,9 +13,9 @@ MonoBehaviour:
   m_Name: Terrain Settings
   m_EditorClassIdentifier: Assembly-CSharp::TerrainSettings
   textureTileSize: 50
-  terrainWidth: 512
+  terrainWidth: 1024
   terrainHeight: 128
-  terrainLength: 512
+  terrainLength: 1024
   seed: 123
   noiseLayers:
   - {fileID: 11400000, guid: 285b3ae08f312fe41b1bdc09ae6d5dd4, type: 2}

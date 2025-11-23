@@ -41,9 +41,11 @@ public class TopDownCamera : MonoBehaviour
     {
         cam = GetComponent<Camera>();
         cam.orthographic = false;
+        cam.farClipPlane = 5000f; // <-- increase far clip
         terrain = FindFirstObjectByType<Terrain>();
         CenterOnTerrain();
     }
+
 
     void Update()
     {

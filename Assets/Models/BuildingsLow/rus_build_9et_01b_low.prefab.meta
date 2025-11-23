@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: fe42eeefc6f114c4fa3284d5c7a7b6cb
+timeCreated: 1522825177
+licenseType: Store
+NativeFormatImporter:
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 80518
+  packageName: Russian buildings lowpoly pack
+  packageVersion: 1.1
+  assetPath: Assets/russian_buildings/prefabs/buildings_low/rus_build_9et_01b_low.prefab
+  uploadId: 239065
