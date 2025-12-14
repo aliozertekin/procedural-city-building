@@ -317,9 +317,14 @@ public class CityGenerator : MonoBehaviour
     {
         foreach (var other in generated)
         {
-            if (!other.CompareTag("Building")) continue;
+            if (other == null) continue;
+
+            // Only treat objects that LOOK like buildings
+            if (!other.name.StartsWith("Building_")) continue;
+
             Bounds oBounds = GetBounds(other);
-            if (oBounds.Intersects(bBounds)) return true;
+            if (oBounds.Intersects(bBounds))
+                return true;
         }
         return false;
     }
@@ -362,34 +367,26 @@ public class CityGenerator : MonoBehaviour
                 rayStart,
                 Vector3.down,
                 out hit,
-                40f,
-                LayerMask.GetMask("Road")
+                40f
             );
 
             Vector3 finalPos = mid;
             Quaternion finalRot;
 
-            if (hitRoad)
+            if (hit.collider != null && hit.collider.gameObject.name.StartsWith("Road_"))
             {
                 finalPos = hit.point;
 
-                // Road forward direction
                 Vector3 forward = (seg.b - seg.a).normalized;
-
-                // Look forward, standing on road slope
                 finalRot = Quaternion.LookRotation(forward, hit.normal);
-
-                // Apply Y -90° rotation offset
                 finalRot *= Quaternion.Euler(0f, -90f, 0f);
             }
             else
             {
-                // Fallback flat case
                 finalPos.y = SampleTerrainHeight(mid);
-
-                // Rotate forward then -90° Y
                 finalRot = Quaternion.LookRotation(seg.b - seg.a) * Quaternion.Euler(0f, -90f, 0f);
             }
+
 
             // Slight lift
             finalPos += Vector3.up * 0.75f;
@@ -408,6 +405,15 @@ public class CityGenerator : MonoBehaviour
 
             placed++;
         }
+    }
+    private bool IsBuilding(GameObject go)
+    {
+        return go != null && go.name.StartsWith("Building_");
+    }
+
+    private bool IsRoad(GameObject go)
+    {
+        return go != null && go.name.StartsWith("Road_");
     }
 
 

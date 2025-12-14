@@ -14,345 +14,334 @@ using UnityEngine.InputSystem;
 [ExecuteAlways]
 public class CityPathfinder : MonoBehaviour
 {
+    public enum PathAlgo
+    {
+        AStar,
+        Dijkstra,
+        BFS,
+        Greedy,
+        DepthLimited,
+        BreadthLimited
+    }
+
     [Header("References")]
     public CityGenerator generator;
 
     [Header("Path Settings")]
     public Transform startPoint;
     public Transform endPoint;
-    public bool autoUpdate = false;
+    public bool autoUpdate;
     public bool drawGizmos = true;
 
-    private List<Vector3> pathPoints = new List<Vector3>();
-    private List<RoadSegment> roadSegments = new List<RoadSegment>();
-    private Dictionary<Vector3, List<Vector3>> graph = new Dictionary<Vector3, List<Vector3>>();
+    [Header("Path Algorithm")]
+    public PathAlgo algorithm = PathAlgo.AStar;
+
+    [Header("Algorithm Limits")]
+    public int depthLimit = 30;
+    public int breadthLimit = 30;
+
+    private List<Vector3> pathPoints = new();
+    private List<RoadSegment> roadSegments = new();
+    private Dictionary<Vector3, List<Vector3>> graph = new();
     private Camera mainCam;
 
     [Header("Gizmo Settings")]
     public float lineHeight = 3f;
-    public float lineWidth = 0.3f;
-    public Color pathColor = Color.red;
+    public float lineWidth = 3f;
     public float sphereRadius = 2f;
+    public Color pathColor = Color.red;
 
-    void OnValidate()
+    // =========================
+    // REQUIRED UI API
+    // =========================
+
+    public void SetStart(Vector3 pos)
     {
-        if (generator == null)
-            generator = Object.FindFirstObjectByType<CityGenerator>();
+        if (startPoint == null)
+            startPoint = new GameObject("PathStart").transform;
+
+        startPoint.position = SnapToNearestEndpoint(pos) + Vector3.up * 2f;
+        GeneratePath();
     }
+
+    public void SetEnd(Vector3 pos)
+    {
+        if (endPoint == null)
+            endPoint = new GameObject("PathEnd").transform;
+
+        endPoint.position = SnapToNearestEndpoint(pos) + Vector3.up * 2f;
+        GeneratePath();
+    }
+
+    public void SetAlgorithm(PathAlgo algo)
+    {
+        algorithm = algo;
+        GeneratePath();
+    }
+
+    // =========================
 
     void OnEnable()
     {
+        if (generator == null)
+            generator = FindFirstObjectByType<CityGenerator>();
+
         LoadRoads();
     }
 
-    void Update()
-    {
-        if (mainCam == null)
-            mainCam = Camera.main;
-
-        HandleKeyInput();
-
-        if (!Application.isPlaying && autoUpdate)
-            GeneratePath();
-    }
-
-    [ContextMenu("Reload Roads")]
     public void LoadRoads()
     {
-        if (generator == null)
-        {
-            Debug.LogWarning("CityPathfinder: Missing CityGenerator reference!");
-            return;
-        }
-
+        if (generator == null) return;
         roadSegments = generator.GetRoadSegments();
-        if (roadSegments == null || roadSegments.Count == 0)
-        {
-            Debug.LogWarning("CityPathfinder: No road segments found!");
-            return;
-        }
-
         graph = BuildGraph();
-        Debug.Log($"CityPathfinder: Loaded {roadSegments.Count} road segments.");
     }
 
-    [ContextMenu("Generate Path")]
     public void GeneratePath()
     {
-        if (roadSegments == null || roadSegments.Count == 0)
-        {
-            LoadRoads();
-            if (roadSegments.Count == 0)
-            {
-                Debug.LogWarning("CityPathfinder: No roads available!");
-                return;
-            }
-        }
-
-        if (startPoint == null || endPoint == null)
-        {
-            Debug.LogWarning("CityPathfinder: Start or End point missing!");
+        if (startPoint == null || endPoint == null || graph.Count == 0)
             return;
-        }
 
-        // Snap start/end to nearest road endpoints
         Vector3 start = SnapToNearestEndpoint(startPoint.position);
         Vector3 end = SnapToNearestEndpoint(endPoint.position);
 
-        pathPoints = AStar(start, end);
-        if (pathPoints.Count > 0)
-            Debug.Log($"CityPathfinder: Generated path with {pathPoints.Count} nodes.");
-        else
-            Debug.LogWarning("CityPathfinder: Failed to generate path!");
+        pathPoints = algorithm switch
+        {
+            PathAlgo.AStar => AStar(start, end),
+            PathAlgo.Dijkstra => Dijkstra(start, end),
+            PathAlgo.BFS => BFS(start, end),
+            PathAlgo.Greedy => Greedy(start, end),
+            PathAlgo.DepthLimited => DepthLimited(start, end, depthLimit),
+            PathAlgo.BreadthLimited => BreadthLimited(start, end, breadthLimit),
+            _ => new()
+        };
     }
 
-    [ContextMenu("Clear Path")]
-    public void ClearPath()
-    {
-        pathPoints.Clear();
-        Debug.Log("CityPathfinder: Cleared path.");
-    }
+    // =========================
+    // PATH ALGORITHMS
+    // =========================
 
-    // -----------------------------
-    //  Core Pathfinding (A*)
-    // -----------------------------
     private List<Vector3> AStar(Vector3 start, Vector3 goal)
     {
-        if (graph == null || graph.Count == 0)
-            graph = BuildGraph();
+        var open = new HashSet<Vector3> { start };
+        var came = new Dictionary<Vector3, Vector3>();
+        var g = new Dictionary<Vector3, float> { [start] = 0 };
+        var f = new Dictionary<Vector3, float> { [start] = Vector3.Distance(start, goal) };
 
-        var openSet = new HashSet<Vector3> { start };
-        var cameFrom = new Dictionary<Vector3, Vector3>();
-        var gScore = new Dictionary<Vector3, float> { [start] = 0f };
-        var fScore = new Dictionary<Vector3, float> { [start] = Heuristic(start, goal) };
-
-        while (openSet.Count > 0)
+        while (open.Count > 0)
         {
-            var current = openSet.OrderBy(n => fScore.ContainsKey(n) ? fScore[n] : float.MaxValue).First();
+            var current = open.OrderBy(n => f.ContainsKey(n) ? f[n] : float.MaxValue).First();
+            if (current == goal) return Reconstruct(came, current);
 
-            if (current == goal)
-                return ReconstructPath(cameFrom, current);
+            open.Remove(current);
 
-            openSet.Remove(current);
-
-            if (!graph.ContainsKey(current)) continue;
-
-            foreach (var neighbor in graph[current])
+            foreach (var n in graph[current])
             {
-                float tentative = gScore[current] + Vector3.Distance(current, neighbor);
-                if (!gScore.ContainsKey(neighbor) || tentative < gScore[neighbor])
+                float t = g[current] + Vector3.Distance(current, n);
+                if (!g.ContainsKey(n) || t < g[n])
                 {
-                    cameFrom[neighbor] = current;
-                    gScore[neighbor] = tentative;
-                    fScore[neighbor] = tentative + Heuristic(neighbor, goal);
-                    openSet.Add(neighbor);
+                    came[n] = current;
+                    g[n] = t;
+                    f[n] = t + Vector3.Distance(n, goal);
+                    open.Add(n);
                 }
             }
         }
-
-        return new List<Vector3>();
+        return new();
     }
 
-    private float Heuristic(Vector3 a, Vector3 b) => Vector3.Distance(a, b);
-
-    private List<Vector3> ReconstructPath(Dictionary<Vector3, Vector3> cameFrom, Vector3 current)
+    private List<Vector3> Dijkstra(Vector3 s, Vector3 g)
     {
-        var path = new List<Vector3> { current };
-        while (cameFrom.ContainsKey(current))
-        {
-            current = cameFrom[current];
-            path.Insert(0, current);
-        }
-        return path;
-    }
+        var d = graph.Keys.ToDictionary(k => k, _ => float.MaxValue);
+        var prev = new Dictionary<Vector3, Vector3>();
+        var q = new HashSet<Vector3>(graph.Keys);
 
-    // -----------------------------
-    //  Utility Methods
-    // -----------------------------
-    private Vector3 SnapToNearestEndpoint(Vector3 position)
-    {
-        float minDist = float.MaxValue;
-        Vector3 closest = position;
+        d[s] = 0;
 
-        // Use all road segment endpoints
-        foreach (var seg in roadSegments)
+        while (q.Count > 0)
         {
-            Vector3[] endpoints = { seg.start, seg.end };
-            foreach (var pt in endpoints)
+            var u = q.OrderBy(n => d[n]).First();
+            q.Remove(u);
+            if (u == g) return Reconstruct(prev, u);
+
+            foreach (var v in graph[u])
             {
-                float dist = Vector3.Distance(position, pt);
-                if (dist < minDist)
+                float alt = d[u] + Vector3.Distance(u, v);
+                if (alt < d[v])
                 {
-                    minDist = dist;
-                    closest = pt;
+                    d[v] = alt;
+                    prev[v] = u;
                 }
             }
         }
-
-        return closest;
+        return new();
     }
 
-
-    private Dictionary<Vector3, List<Vector3>> BuildGraph()
+    private List<Vector3> BFS(Vector3 s, Vector3 g)
     {
-        var graph = new Dictionary<Vector3, List<Vector3>>();
+        var q = new Queue<Vector3>();
+        var came = new Dictionary<Vector3, Vector3>();
+        var vis = new HashSet<Vector3>();
 
-        foreach (var seg in roadSegments)
+        q.Enqueue(s);
+        vis.Add(s);
+
+        while (q.Count > 0)
         {
-            if (IsSegmentBlocked(seg))
-                continue;
+            var c = q.Dequeue();
+            if (c == g) return Reconstruct(came, c);
 
-            if (!graph.ContainsKey(seg.start))
-                graph[seg.start] = new List<Vector3>();
-            if (!graph.ContainsKey(seg.end))
-                graph[seg.end] = new List<Vector3>();
-
-            graph[seg.start].Add(seg.end);
-            graph[seg.end].Add(seg.start);
+            foreach (var n in graph[c])
+            {
+                if (vis.Add(n))
+                {
+                    came[n] = c;
+                    q.Enqueue(n);
+                }
+            }
         }
-
-        return graph;
+        return new();
     }
 
-    // -----------------------------
-    //  Roadblock check
-    // -----------------------------
-    private bool IsSegmentBlocked(RoadSegment seg)
+    private List<Vector3> Greedy(Vector3 s, Vector3 g)
     {
-        if (generator == null || generator.roadBlocks == null) return false;
+        var open = new SortedSet<Vector3>(
+            Comparer<Vector3>.Create((a, b) =>
+                Vector3.Distance(a, g).CompareTo(Vector3.Distance(b, g)))
+        ) { s };
 
-        Vector3 mid = (seg.start + seg.end) * 0.5f;
+        var came = new Dictionary<Vector3, Vector3>();
+        var vis = new HashSet<Vector3>();
 
-        foreach (var block in generator.roadBlocks)
+        while (open.Count > 0)
         {
-            if (block == null) continue;
+            var c = open.Min;
+            open.Remove(c);
+            if (c == g) return Reconstruct(came, c);
 
-            // use the roadblock's stored position and radius
-            float blockRadius = block.radius;
-            // also consider road width to be safe
-            float roadWidth = 0f;
-            if (generator != null) roadWidth = generator.GetRoadWidth();
+            vis.Add(c);
+            foreach (var n in graph[c])
+                if (!vis.Contains(n))
+                {
+                    came.TryAdd(n, c);
+                    open.Add(n);
+                }
+        }
+        return new();
+    }
 
-            float threshold = blockRadius + (roadWidth * 0.5f);
+    private List<Vector3> DepthLimited(Vector3 s, Vector3 g, int limit)
+    {
+        var path = new List<Vector3>();
+        return DLS(s, g, limit, path, new HashSet<Vector3>()) ? path : new();
+    }
 
-            if (Vector3.Distance(mid, block.position) <= threshold)
+    private bool DLS(Vector3 c, Vector3 g, int l, List<Vector3> p, HashSet<Vector3> v)
+    {
+        p.Add(c);
+        v.Add(c);
+        if (c == g) return true;
+        if (l == 0) return false;
+
+        foreach (var n in graph[c])
+            if (!v.Contains(n) && DLS(n, g, l - 1, p, v))
                 return true;
-        }
 
+        p.RemoveAt(p.Count - 1);
         return false;
     }
 
-    // -----------------------------
-    //  Input Handling (New Input System)
-    // -----------------------------
-    private void HandleKeyInput()
+    private List<Vector3> BreadthLimited(Vector3 s, Vector3 g, int max)
     {
-#if ENABLE_INPUT_SYSTEM
-        if (Keyboard.current == null || roadSegments == null || roadSegments.Count == 0) return;
-        if (mainCam == null) return;
+        var q = new Queue<Vector3>();
+        var came = new Dictionary<Vector3, Vector3>();
+        var v = new HashSet<Vector3>();
 
-        Vector3? nearestPoint = GetNearestRoadPointToMouse();
+        q.Enqueue(s);
+        v.Add(s);
 
-        if (nearestPoint.HasValue)
+        while (q.Count > 0)
         {
-            if (Keyboard.current.bKey.wasPressedThisFrame)
-            {
-                if (startPoint == null)
-                {
-                    GameObject go = new GameObject("StartPoint");
-                    go.transform.parent = transform;
-                    startPoint = go.transform;
-                }
-                startPoint.position = nearestPoint.Value + Vector3.up * 2f;
-                Debug.Log("CityPathfinder: Start point set.");
-            }
+            var c = q.Dequeue();
+            if (c == g) return Reconstruct(came, c);
 
-            if (Keyboard.current.nKey.wasPressedThisFrame)
+            int added = 0;
+            foreach (var n in graph[c])
             {
-                if (endPoint == null)
+                if (v.Add(n))
                 {
-                    GameObject go = new GameObject("EndPoint");
-                    go.transform.parent = transform;
-                    endPoint = go.transform;
+                    came[n] = c;
+                    q.Enqueue(n);
+                    if (++added >= max) break;
                 }
-                endPoint.position = nearestPoint.Value + Vector3.up * 2f;
-                Debug.Log("CityPathfinder: End point set.");
             }
         }
-
-        if (Keyboard.current.mKey.wasPressedThisFrame)
-        {
-            GeneratePath();
-        }
-#endif
+        return new();
     }
 
-    private Vector3? GetNearestRoadPointToMouse()
+    // =========================
+
+    private List<Vector3> Reconstruct(Dictionary<Vector3, Vector3> came, Vector3 c)
     {
-#if ENABLE_INPUT_SYSTEM
-        if (Mouse.current == null || mainCam == null || roadSegments == null || roadSegments.Count == 0) return null;
-
-        Vector3 mousePos = Mouse.current.position.ReadValue();
-        Ray ray = mainCam.ScreenPointToRay(mousePos);
-        Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
-
-        if (groundPlane.Raycast(ray, out float enter))
+        var p = new List<Vector3> { c };
+        while (came.ContainsKey(c))
         {
-            Vector3 hit = ray.GetPoint(enter);
-
-            float minDist = float.MaxValue;
-            Vector3 closest = hit;
-
-            foreach (var seg in roadSegments)
-            {
-                float da = Vector3.Distance(hit, seg.start);
-                float db = Vector3.Distance(hit, seg.end);
-
-                if (da < minDist)
-                {
-                    minDist = da;
-                    closest = seg.start;
-                }
-
-                if (db < minDist)
-                {
-                    minDist = db;
-                    closest = seg.end;
-                }
-            }
-
-            return closest;
+            c = came[c];
+            p.Insert(0, c);
         }
-#endif
-        return null;
+        return p;
     }
 
-    // -----------------------------
-    //  Gizmos
-    // -----------------------------
+    private Vector3 SnapToNearestEndpoint(Vector3 pos)
+    {
+        float min = float.MaxValue;
+        Vector3 best = pos;
+
+        foreach (var s in roadSegments)
+        {
+            float a = Vector3.Distance(pos, s.start);
+            float b = Vector3.Distance(pos, s.end);
+            if (a < min) { min = a; best = s.start; }
+            if (b < min) { min = b; best = s.end; }
+        }
+        return best;
+    }
+
+    private Dictionary<Vector3, List<Vector3>> BuildGraph()
+    {
+        var g = new Dictionary<Vector3, List<Vector3>>();
+        foreach (var s in roadSegments)
+        {
+            g.TryAdd(s.start, new());
+            g.TryAdd(s.end, new());
+            g[s.start].Add(s.end);
+            g[s.end].Add(s.start);
+        }
+        return g;
+    }
+
+#if UNITY_EDITOR
     void OnDrawGizmos()
     {
         if (!drawGizmos) return;
 
-#if UNITY_EDITOR
-        if (startPoint != null)
+        if (startPoint)
         {
             Gizmos.color = Color.green;
             Gizmos.DrawSphere(startPoint.position, sphereRadius);
         }
 
-        if (endPoint != null)
+        if (endPoint)
         {
             Gizmos.color = Color.blue;
             Gizmos.DrawSphere(endPoint.position, sphereRadius);
         }
 
-        if (pathPoints != null && pathPoints.Count > 1)
+        if (pathPoints.Count > 1)
         {
             Handles.color = pathColor;
-            Vector3[] elevatedPath = pathPoints.Select(p => p + Vector3.up * lineHeight).ToArray();
-            Handles.DrawAAPolyLine(lineWidth, elevatedPath);
+            Handles.DrawAAPolyLine(lineWidth,
+                pathPoints.Select(p => p + Vector3.up * lineHeight).ToArray());
         }
-#endif
     }
+#endif
 }
