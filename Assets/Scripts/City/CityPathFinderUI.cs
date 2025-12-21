@@ -1,432 +1,350 @@
-// CityPathfinderUI.cs
-// Drop-in UI controller for CityPathfinder (robust runtime-created UI).
-// Works with legacy Input or new Input System (compile-guarded).
-// Calls into your existing CityPathfinder public API: SetStart, SetEnd, SetAlgorithm, GeneratePath.
-
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
-#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-using UnityEngine.InputSystem;
-#endif
-
 [RequireComponent(typeof(Canvas))]
+[RequireComponent(typeof(CanvasScaler))]
+[RequireComponent(typeof(GraphicRaycaster))]
 public class CityPathfinderUI : MonoBehaviour
 {
-    [Header("References (optional, auto-find if null)")]
+    [Header("References")]
     public CityPathfinder pathfinder;
-    public CityGenerator generator;
+    public CityGenerator city;
+    public TerrainGenerator terrain;
     public Font uiFont;
 
-    [Header("Layout")]
-    public int panelWidth = 340;
+    [Header("UI")]
+    public int panelWidth = 300;
+    [Range(0.5f, 3f)] public float uiScale = 1.5f;
 
-    // internal UI
-    private Button algoButton;
-    private Button placeStartButton;
-    private Button placeEndButton;
-    private Button calcButton;
-    private Text statusText;
+    // runtime
     private Text lengthText;
+    private Dictionary<CityPathfinder.PathAlgo, Image> algoImgs = new();
 
-    // placement mode
-    private enum PlaceMode { None, Start, End }
-    private PlaceMode placeMode = PlaceMode.None;
-
-    private Camera mainCam;
-
-    // enum values cached
-    private Array algoValues;
-
+    // =========================================================
     void Awake()
     {
-        // safe finds
-        if (pathfinder == null)
-            pathfinder = FindFirstObjectByType<CityPathfinder>();
-        if (generator == null)
-            generator = FindFirstObjectByType<CityGenerator>();
+        if (!pathfinder) pathfinder = FindFirstObjectByType<CityPathfinder>();
+        if (!city) city = FindFirstObjectByType<CityGenerator>();
+        if (!terrain) terrain = FindFirstObjectByType<TerrainGenerator>();
 
-        mainCam = Camera.main;
-
-        // prepare enum list from your PathAlgo
-        algoValues = Enum.GetValues(typeof(CityPathfinder.PathAlgo));
-
-        // ensure event system appropriate for input backend
-        EnsureEventSystemForInput();
-
-        // build UI
-        BuildRuntimeUI();
-
-        // initialize UI state
-        SyncUIFromPathfinder();
+        EnsureEventSystem();
+        BuildUI();
     }
 
-    void OnEnable()
+    // =========================================================
+    // UI BUILD
+    // =========================================================
+    void BuildUI()
     {
-        // ensure main camera reference at runtime
-        if (mainCam == null) mainCam = Camera.main;
-    }
+        Canvas c = GetComponent<Canvas>();
+        c.renderMode = RenderMode.ScreenSpaceOverlay;
 
-    void Update()
-    {
-        // Only handle placement when requested
-        if (placeMode == PlaceMode.None) return;
+        CanvasScaler s = GetComponent<CanvasScaler>();
+        s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        s.referenceResolution = new Vector2(1920, 1080);
 
-        // block if pointer is over UI
-        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-            return;
+        // global scale
+        transform.localScale = Vector3.one * uiScale;
 
-        bool clicked = false;
+        foreach (Transform t in transform)
+            Destroy(t.gameObject);
 
-#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-        // New Input System: use mouse current if available
-        if (Mouse.current != null)
-            clicked = Mouse.current.leftButton.wasPressedThisFrame;
-        else
-            clicked = UnityEngine.Input.GetMouseButtonDown(0); // fallback
-#else
-        // Legacy input
-        clicked = UnityEngine.Input.GetMouseButtonDown(0);
-#endif
+        // ================= LEFT : PATHFINDING =================
+        RectTransform left = CreatePanel(true);
+        AddHeader(left, "PATHFINDING");
 
-        if (!clicked) return;
-
-        // Raycast against physics or use plane fallback (y=0) if no collider
-        Vector3 worldPos;
-        if (RaycastScene(out worldPos))
+        foreach (CityPathfinder.PathAlgo algo in Enum.GetValues(typeof(CityPathfinder.PathAlgo)))
         {
-            // use API on pathfinder to set points (it does snapping internally)
-            if (placeMode == PlaceMode.Start)
+            var a = algo;
+            var btn = AddButton(left, algo.ToString(), () =>
             {
-                pathfinder?.SetStart(worldPos);
-                statusText.text = "Start placed";
-            }
-            else // End
-            {
-                pathfinder?.SetEnd(worldPos);
-                statusText.text = "End placed";
-            }
+                pathfinder.SetAlgorithm(a);
+                HighlightAlgo(a);
+            });
+            algoImgs[a] = btn.GetComponent<Image>();
         }
-        else
+        HighlightAlgo(pathfinder.algorithm);
+
+        AddSpacer(left, 8);
+
+        AddButton(left, "RANDOM START", () => RandomizePoint(true));
+        AddButton(left, "RANDOM END", () => RandomizePoint(false));
+
+        AddSpacer(left, 6);
+
+        AddButton(left, "CALCULATE PATH", () =>
         {
-            // fallback: use projection on y=0 plane
-            Ray r = mainCam.ScreenPointToRay(GetPointerPosition());
-            Plane plane = new Plane(Vector3.up, Vector3.zero);
-            if (plane.Raycast(r, out float t))
-            {
-                Vector3 pos = r.GetPoint(t);
-                if (placeMode == PlaceMode.Start)
-                {
-                    pathfinder?.SetStart(pos);
-                    statusText.text = "Start placed (plane)";
-                }
-                else
-                {
-                    pathfinder?.SetEnd(pos);
-                    statusText.text = "End placed (plane)";
-                }
-            }
-            else
-            {
-                statusText.text = "Could not place point (no ray/plane)";
-            }
-        }
-
-        placeMode = PlaceMode.None;
-    }
-
-    // --------------------------
-    // UI Construction
-    // --------------------------
-    private void BuildRuntimeUI()
-    {
-        // Canvas (component exists due to RequireComponent)
-        Canvas canvas = GetComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 999;
-
-        // Add CanvasScaler + GraphicRaycaster if missing
-        if (!TryGetComponent(out CanvasScaler _))
-        {
-            var s = gameObject.AddComponent<CanvasScaler>();
-            s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            s.referenceResolution = new Vector2(1920, 1080);
-        }
-        if (!TryGetComponent(out GraphicRaycaster _))
-            gameObject.AddComponent<GraphicRaycaster>();
-
-        // Panel root
-        GameObject panel = UIObj("PathfinderPanel", transform);
-        RectTransform prt = panel.GetComponent<RectTransform>();
-        prt.anchorMin = new Vector2(0, 1);
-        prt.anchorMax = new Vector2(0, 1);
-        prt.pivot = new Vector2(0, 1);
-        prt.anchoredPosition = new Vector2(10, -10);
-        prt.sizeDelta = new Vector2(panelWidth, 300);
-        var img = panel.AddComponent<Image>();
-        img.color = new Color(0f, 0f, 0f, 0.75f);
-
-        float y = -12f;
-        float left = 12f;
-        float w = panelWidth - 24f;
-
-        // Title
-        Text title = UIText("City Pathfinder", panel.transform, left, y, w, 26);
-        title.fontStyle = FontStyle.Bold;
-        y -= 34f;
-
-        // Algorithm cycle button (stable alternative to runtime dropdown)
-        algoButton = UIButton("Algorithm: ?", panel.transform, left, y, w, 34, () =>
-        {
-            CycleAlgorithm();
-        });
-        y -= 40f;
-
-        // Place start/end buttons (side-by-side)
-        float halfW = (w - 8f) * 0.5f;
-        placeStartButton = UIButton("Place Start", panel.transform, left, y, halfW, 34, () =>
-        {
-            placeMode = PlaceMode.Start;
-            statusText.text = "Click the scene to place START";
-        });
-
-        placeEndButton = UIButton("Place End", panel.transform, left + halfW + 8f, y, halfW, 34, () =>
-        {
-            placeMode = PlaceMode.End;
-            statusText.text = "Click the scene to place END";
-        });
-        y -= 44f;
-
-        // Calculate / Generate path
-        calcButton = UIButton("Calculate Path", panel.transform, left, y, w, 36, () =>
-        {
-            if (pathfinder == null)
-            {
-                statusText.text = "No pathfinder assigned";
-                return;
-            }
-
-            // ensure graph loaded
-            TryEnsureRoadsLoaded();
-
+            pathfinder.LoadRoads();
             pathfinder.GeneratePath();
-
-            // update stats
-            UpdatePathStatsIntoUI();
-
-            statusText.text = "Path calculated";
+            UpdateLength();
         });
-        y -= 46f;
 
-        // Path length + status text
-        lengthText = UIText("Length: -", panel.transform, left, y, w, 20);
-        y -= 22f;
-        statusText = UIText("Status: Idle", panel.transform, left, y, w, 40);
-        statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        lengthText = AddLabel(left, "Length: -");
 
-        // final init
-        SyncUIFromPathfinder();
+        // ================= RIGHT : SETTINGS =================
+        RectTransform right = CreatePanel(false);
+
+        // -------- CITY --------
+        AddHeader(right, "CITY");
+
+        AddIntField(right, "Seed", city.seed, v => city.seed = v);
+        AddFloatField(right, "Size X", city.citySize.x, v => city.citySize.x = v);
+        AddFloatField(right, "Size Z", city.citySize.y, v => city.citySize.y = v);
+        AddFloatField(right, "Grid", city.gridBlockSize, v => city.gridBlockSize = v);
+        AddFloatField(right, "Road Width", city.roadWidth, v => city.roadWidth = v);
+        AddFloatField(right, "Center Density", city.centerDensity, v => city.centerDensity = Mathf.Clamp01(v));
+        AddFloatField(right, "Edge Density", city.edgeDensity, v => city.edgeDensity = Mathf.Clamp01(v));
+
+        AddButton(right, "GENERATE CITY", () =>
+        {
+            city.GenerateCity();
+            pathfinder.LoadRoads();
+        });
+
+        AddButton(right, "CLEAR CITY", () =>
+        {
+            city.ClearCityHard();
+            pathfinder.ResetPathfinder();
+        });
+
+        AddHeader(right, "ROADBLOCKS");
+
+        AddIntField(right, "Count", city.numRoadblocks, v =>
+        {
+            city.numRoadblocks = Mathf.Max(0, v);
+        });
+
+        AddFloatField(right, "Radius", city.roadBlockRadius, v =>
+        {
+            city.roadBlockRadius = Mathf.Max(0.1f, v);
+        });
+
+        AddButton(right, "REGENERATE BLOCKS", () =>
+        {
+            city.ClearPrevious();
+            city.GenerateCity();
+            pathfinder.LoadRoads();
+        });
+
+
+        // -------- TERRAIN --------
+        if (terrain && terrain.settings)
+        {
+            AddSpacer(right, 10);
+            AddHeader(right, "TERRAIN");
+
+            AddIntField(right, "Seed", terrain.settings.seed, v => terrain.settings.seed = v);
+            AddIntField(right, "Width", terrain.settings.terrainWidth, v => terrain.settings.terrainWidth = v);
+            AddIntField(right, "Length", terrain.settings.terrainLength, v => terrain.settings.terrainLength = v);
+            AddIntField(right, "Height", terrain.settings.terrainHeight, v => terrain.settings.terrainHeight = v);
+            AddFloatField(right, "Tile Size", terrain.settings.textureTileSize, v => terrain.settings.textureTileSize = v);
+
+            AddButton(right, "GENERATE TERRAIN + CITY", () =>
+            {
+                terrain.Generate();
+                city.GenerateCity();
+                pathfinder.LoadRoads();
+            });
+        }
     }
 
-    // --------------------------
-    // Helpers: UI element builders
-    // --------------------------
-    GameObject UIObj(string name, Transform parent)
+    // =========================================================
+    // RANDOM START / END
+    // =========================================================
+    void RandomizePoint(bool start)
     {
-        GameObject go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-        go.AddComponent<RectTransform>();
-        return go;
+        var segs = city.GetRoadSegments();
+        if (segs == null || segs.Count == 0) return;
+
+        var seg = segs[UnityEngine.Random.Range(0, segs.Count)];
+        Vector3 pos = Vector3.Lerp(seg.start, seg.end, UnityEngine.Random.value);
+
+        if (start) pathfinder.SetStart(pos);
+        else pathfinder.SetEnd(pos);
     }
 
-    Text UIText(string txt, Transform p, float x, float y, float w, float h)
+    // =========================================================
+    // UI HELPERS
+    // =========================================================
+    RectTransform CreatePanel(bool left)
     {
-        Text t = UIObj("Text", p).AddComponent<Text>();
-        t.font = uiFont ? uiFont : Resources.GetBuiltinResource<Font>("Arial.ttf");
-        t.text = txt;
-        t.color = Color.white;
-        t.raycastTarget = false;
-        SetRect(t.rectTransform, x, y, w, h);
-        return t;
-    }
+        GameObject go = new GameObject(left ? "LeftPanel" : "RightPanel");
+        go.transform.SetParent(transform, false);
 
-    Button UIButton(string label, Transform p, float x, float y, float w, float h, Action onClick)
-    {
-        GameObject go = UIObj("Button_" + label, p);
         Image img = go.AddComponent<Image>();
-        img.color = new Color(0.2f, 0.2f, 0.2f);
+        img.color = new Color(0, 0, 0, 0.85f);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = left ? new Vector2(0, 1) : new Vector2(1, 1);
+        rt.pivot = rt.anchorMin;
+        rt.anchoredPosition = left ? new Vector2(10, -10) : new Vector2(-10, -10);
+        rt.sizeDelta = new Vector2(panelWidth, 0);
+
+        var v = go.AddComponent<VerticalLayoutGroup>();
+        v.padding = new RectOffset(8, 8, 8, 8);
+        v.spacing = 6;
+        v.childControlHeight = true;
+        v.childForceExpandHeight = false;
+
+        go.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        return rt;
+    }
+
+    Button AddButton(Transform parent, string label, Action onClick)
+    {
+        GameObject go = new GameObject(label);
+        go.transform.SetParent(parent, false);
+
+        Image img = go.AddComponent<Image>();
+        img.color = new Color(0.25f, 0.25f, 0.25f);
+
         Button b = go.AddComponent<Button>();
-        SetRect(go.GetComponent<RectTransform>(), x, y, w, h);
-
-        Text t = UIText(label, go.transform, 0, 0, w, h);
-        t.alignment = TextAnchor.MiddleCenter;
-        t.color = Color.white;
-
         b.onClick.AddListener(() => onClick());
+
+        Text t = new GameObject("Text").AddComponent<Text>();
+        t.transform.SetParent(go.transform, false);
+        t.font = GetFont();
+        t.text = label;
+        t.color = Color.white;
+        t.alignment = TextAnchor.MiddleCenter;
+        t.fontSize = 14;
+
+        RectTransform tr = t.rectTransform;
+        tr.anchorMin = Vector2.zero;
+        tr.anchorMax = Vector2.one;
+        tr.offsetMin = tr.offsetMax = Vector2.zero;
+
+        go.AddComponent<LayoutElement>().minHeight = 32;
         return b;
     }
 
-    void SetRect(RectTransform rt, float x, float y, float w, float h)
+    void AddHeader(Transform parent, string txt)
     {
-        rt.anchorMin = new Vector2(0, 1);
-        rt.anchorMax = new Vector2(0, 1);
-        rt.pivot = new Vector2(0, 1);
-        rt.anchoredPosition = new Vector2(x, y);
-        rt.sizeDelta = new Vector2(w, h);
+        Text t = AddLabel(parent, txt);
+        t.fontStyle = FontStyle.Bold;
+        t.color = Color.yellow;
+        t.fontSize = 16;
     }
 
-    // --------------------------
-    // Algorithm handling
-    // --------------------------
-    void SyncUIFromPathfinder()
+    Text AddLabel(Transform parent, string txt)
     {
-        if (pathfinder == null) return;
-        var cur = pathfinder.algorithm;
-        algoButton.GetComponentInChildren<Text>().text = $"Algorithm: {cur}";
+        Text t = new GameObject("Label").AddComponent<Text>();
+        t.transform.SetParent(parent, false);
+        t.font = GetFont();
+        t.text = txt;
+        t.color = Color.white;
+        t.fontSize = 13;
+        t.alignment = TextAnchor.MiddleCenter;
+        return t;
     }
 
-    void CycleAlgorithm()
+    void AddSpacer(Transform parent, float h)
     {
-        if (pathfinder == null) return;
-
-        // find current index in enum values
-        CityPathfinder.PathAlgo current = pathfinder.algorithm;
-        int idx = Array.IndexOf(algoValues, current);
-        idx = (idx + 1) % algoValues.Length;
-        CityPathfinder.PathAlgo next = (CityPathfinder.PathAlgo)algoValues.GetValue(idx);
-
-        pathfinder.SetAlgorithm(next);
-        algoButton.GetComponentInChildren<Text>().text = $"Algorithm: {next}";
-        statusText.text = $"Algorithm set to {next}";
+        GameObject g = new GameObject("Spacer");
+        g.transform.SetParent(parent, false);
+        g.AddComponent<LayoutElement>().minHeight = h;
     }
 
-    // --------------------------
-    // Path stats (reads private pathPoints field by reflection)
-    // --------------------------
-    void UpdatePathStatsIntoUI()
+    void AddIntField(Transform parent, string label, int value, Action<int> onChange)
     {
-        if (pathfinder == null || lengthText == null) return;
-
-        try
+        var row = CreateFieldRow(parent);
+        var input = CreateInput(row, value.ToString());
+        input.onEndEdit.AddListener(v =>
         {
-            FieldInfo f = typeof(CityPathfinder).GetField("pathPoints", BindingFlags.NonPublic | BindingFlags.Instance);
-            var list = f?.GetValue(pathfinder) as List<Vector3>;
-            if (list == null || list.Count < 2)
-            {
-                lengthText.text = "Length: -";
-                statusText.text = "No path";
-                return;
-            }
-
-            float len = 0f;
-            for (int i = 1; i < list.Count; i++) len += Vector3.Distance(list[i - 1], list[i]);
-            lengthText.text = $"Length: {len:F2}  Nodes: {list.Count}";
-        }
-        catch (Exception ex)
-        {
-            lengthText.text = "Length: ? (error)";
-            Debug.LogWarning("CityPathfinderUI: failed to read pathPoints: " + ex);
-        }
+            if (int.TryParse(v, out int r))
+                onChange(r);
+        });
+        AddLabel(row, label);
     }
 
-    // --------------------------
-    // Raycasting helper
-    // --------------------------
-    bool RaycastScene(out Vector3 worldPos)
+    void AddFloatField(Transform parent, string label, float value, Action<float> onChange)
     {
-        worldPos = Vector3.zero;
-
-        if (mainCam == null)
+        var row = CreateFieldRow(parent);
+        var input = CreateInput(row, value.ToString("0.##"));
+        input.onEndEdit.AddListener(v =>
         {
-            mainCam = Camera.main;
-            if (mainCam == null) return false;
-        }
-
-#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-        Vector2 pointer = GetPointerPosition();
-        Ray ray = mainCam.ScreenPointToRay(pointer);
-#else
-        Ray ray = mainCam.ScreenPointToRay(GetPointerPosition());
-#endif
-
-        if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
-        {
-            worldPos = hit.point;
-            return true;
-        }
-        return false;
+            if (float.TryParse(v, out float r))
+                onChange(r);
+        });
+        AddLabel(row, label);
     }
 
-    Vector2 GetPointerPosition()
+    Transform CreateFieldRow(Transform parent)
     {
-#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-        if (Pointer.current != null) return Pointer.current.position.ReadValue();
-        if (Mouse.current != null) return Mouse.current.position.ReadValue();
-        return Vector2.zero;
-#else
-        return UnityEngine.Input.mousePosition;
-#endif
+        GameObject r = new GameObject("Row");
+        r.transform.SetParent(parent, false);
+        r.AddComponent<HorizontalLayoutGroup>().spacing = 6;
+        r.AddComponent<LayoutElement>().minHeight = 30;
+        return r.transform;
     }
 
-    // --------------------------
-    // Road loading
-    // --------------------------
-    void TryEnsureRoadsLoaded()
+    InputField CreateInput(Transform parent, string value)
     {
-        if (pathfinder == null) return;
+        GameObject go = new GameObject("Input");
+        go.transform.SetParent(parent, false);
 
-        // if graph seems empty try to call LoadRoads on pathfinder
-        FieldInfo f = typeof(CityPathfinder).GetField("graph", BindingFlags.NonPublic | BindingFlags.Instance);
-        var gObj = f?.GetValue(pathfinder) as Dictionary<Vector3, List<Vector3>>;
-        if (gObj == null || gObj.Count == 0)
-        {
-            // invoke public LoadRoads if available
-            MethodInfo m = typeof(CityPathfinder).GetMethod("LoadRoads", BindingFlags.Public | BindingFlags.Instance);
-            m?.Invoke(pathfinder, null);
-        }
+        Image img = go.AddComponent<Image>();
+        img.color = new Color(0.15f, 0.15f, 0.15f);
+
+        InputField f = go.AddComponent<InputField>();
+        Text t = new GameObject("Text").AddComponent<Text>();
+        t.transform.SetParent(go.transform, false);
+        t.font = GetFont();
+        t.text = value;
+        t.color = Color.white;
+        t.fontSize = 13;
+
+        f.textComponent = t;
+        f.text = value;
+
+        RectTransform tr = t.rectTransform;
+        tr.anchorMin = Vector2.zero;
+        tr.anchorMax = Vector2.one;
+        tr.offsetMin = tr.offsetMax = Vector2.zero;
+
+        go.AddComponent<LayoutElement>().minWidth = 90;
+        return f;
     }
 
-    // --------------------------
-    // EventSystem / Input setup
-    // --------------------------
-    void EnsureEventSystemForInput()
+    // =========================================================
+    void HighlightAlgo(CityPathfinder.PathAlgo a)
     {
-        if (FindFirstObjectByType<EventSystem>() != null) return;
+        foreach (var kv in algoImgs)
+            kv.Value.color = kv.Key == a
+                ? new Color(0, 0.5f, 1f)
+                : new Color(0.25f, 0.25f, 0.25f);
+    }
 
-#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
-        // If the new Input System is in use, create an EventSystem with InputSystemUIInputModule if available
-        var go = new GameObject("EventSystem");
-        var es = go.AddComponent<EventSystem>();
-        // Try to add InputSystemUIInputModule via reflection (to avoid compile errors when package missing)
-        var asm = AppDomain.CurrentDomain.GetAssemblies();
-        Type inputModuleType = null;
-        foreach (var a in asm)
+    void UpdateLength()
+    {
+        var f = typeof(CityPathfinder).GetField("pathPoints",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        var list = f?.GetValue(pathfinder) as List<Vector3>;
+        if (list == null || list.Count < 2)
         {
-            try
-            {
-                inputModuleType = a.GetType("UnityEngine.InputSystem.UI.InputSystemUIInputModule");
-                if (inputModuleType != null) break;
-            }
-            catch { }
+            lengthText.text = "Length: -";
+            return;
         }
-        if (inputModuleType != null)
-        {
-            go.AddComponent(inputModuleType);
-        }
-        else
-        {
-            // fallback to StandaloneInputModule if InputSystemUIInputModule not found
-            go.AddComponent<StandaloneInputModule>();
-        }
-#else
-        // Legacy input: StandaloneInputModule
-        var go = new GameObject("EventSystem");
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
-#endif
+
+        float d = 0f;
+        for (int i = 1; i < list.Count; i++)
+            d += Vector3.Distance(list[i - 1], list[i]);
+
+        lengthText.text = $"Length: {d:F1}";
+    }
+
+    Font GetFont() =>
+        uiFont ? uiFont : Resources.GetBuiltinResource<Font>("Arial.ttf");
+
+    void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>()) return;
+        var g = new GameObject("EventSystem");
+        g.AddComponent<EventSystem>();
+        g.AddComponent<StandaloneInputModule>();
     }
 }

@@ -428,23 +428,36 @@ public class CityGenerator : MonoBehaviour
         float halfX = citySize.x * 0.5f;
         float halfY = citySize.y * 0.5f;
 
+        // ======================================================
+        // GRID POINTS
+        // ======================================================
         Vector3[,] gridPoints = new Vector3[cols + 1, rows + 1];
         for (int i = 0; i <= cols; i++)
+        {
             for (int j = 0; j <= rows; j++)
             {
-                Vector3 local = new Vector3(-halfX + i * gridBlockSize, 0, -halfY + j * gridBlockSize);
+                Vector3 local = new Vector3(
+                    -halfX + i * gridBlockSize,
+                    0,
+                    -halfY + j * gridBlockSize
+                );
+
                 Vector3 world = ToTerrainCentered(local);
                 world.y = SampleTerrainHeight(world);
                 gridPoints[i, j] = world;
             }
+        }
 
+        // ======================================================
+        // VERTICAL ROADS
+        // ======================================================
         for (int i = 0; i <= cols; i++)
         {
             int j = 0;
             while (j < rows)
             {
-                int segmentLength = rng.Next(1, 4);
-                int endJ = Mathf.Min(j + segmentLength, rows);
+                int segLen = rng.Next(1, 4);
+                int endJ = Mathf.Min(j + segLen, rows);
 
                 for (int k = j; k < endJ; k++)
                     CreateCurvedRoad(gridPoints[i, k], gridPoints[i, k + 1], roadWidth);
@@ -453,13 +466,16 @@ public class CityGenerator : MonoBehaviour
             }
         }
 
+        // ======================================================
+        // HORIZONTAL ROADS
+        // ======================================================
         for (int j = 0; j <= rows; j++)
         {
             int i = 0;
             while (i < cols)
             {
-                int segmentLength = rng.Next(1, 4);
-                int endI = Mathf.Min(i + segmentLength, cols);
+                int segLen = rng.Next(1, 4);
+                int endI = Mathf.Min(i + segLen, cols);
 
                 for (int k = i; k < endI; k++)
                     CreateCurvedRoad(gridPoints[k, j], gridPoints[k + 1, j], roadWidth);
@@ -468,30 +484,88 @@ public class CityGenerator : MonoBehaviour
             }
         }
 
+        // ======================================================
+        // BUILDINGS (FAST, METHODICAL)
+        // ======================================================
         for (int i = 0; i < cols; i++)
+        {
             for (int j = 0; j < rows; j++)
             {
-                Vector3 center = (gridPoints[i, j] + gridPoints[i + 1, j + 1]) * 0.5f;
+                Vector3 blockCenter =
+                    (gridPoints[i, j] + gridPoints[i + 1, j + 1]) * 0.5f;
 
-                if (rng.NextDouble() > (0.3 + 0.7 * PopulationDensity(center)))
+                float density = PopulationDensity(blockCenter);
+
+                // Early skip for empty blocks
+                if (rng.NextDouble() > density)
                     continue;
 
                 float margin = (roadWidth + 2f) * 0.5f;
-                Vector3 blockMin = gridPoints[i, j] + new Vector3(margin, 0, margin);
-                Vector3 blockMax = gridPoints[i + 1, j + 1] - new Vector3(margin, 0, margin);
+                Vector3 min = gridPoints[i, j] + new Vector3(margin, 0, margin);
+                Vector3 max = gridPoints[i + 1, j + 1] - new Vector3(margin, 0, margin);
 
-                for (int attempt = 0; attempt < 5; attempt++)
+                // How many buildings this block should get
+                int targetBuildings = Mathf.RoundToInt(Mathf.Lerp(1, 6, density));
+
+                // Sub-grid resolution (adaptive)
+                int subGrid = Mathf.Clamp(
+                    Mathf.RoundToInt(gridBlockSize / 6f),
+                    2,
+                    6
+                );
+
+                float stepX = (max.x - min.x) / subGrid;
+                float stepZ = (max.z - min.z) / subGrid;
+
+                int placed = 0;
+
+                for (int x = 0; x < subGrid && placed < targetBuildings; x++)
                 {
-                    Vector3 randomPos = new Vector3(
-                        RandomRange(blockMin.x, blockMax.x),
-                        0,
-                        RandomRange(blockMin.z, blockMax.z));
+                    for (int z = 0; z < subGrid && placed < targetBuildings; z++)
+                    {
+                        Vector3 pos = new Vector3(
+                            min.x + (x + 0.5f) * stepX,
+                            0,
+                            min.z + (z + 0.5f) * stepZ
+                        );
 
-                    randomPos.y = SampleTerrainHeight(randomPos);
+                        pos.y = SampleTerrainHeight(pos);
 
-                    if (CreateBuilding(randomPos) != null)
-                        break;
+                        if (CreateBuilding(pos) != null)
+                            placed++;
+                    }
                 }
             }
+        }
     }
+
+
+    public void ClearCityHard()
+    {
+        if (root == null)
+            root = this.transform;
+
+        // HARD DELETE: everything under root
+        for (int i = root.childCount - 1; i >= 0; i--)
+        {
+#if UNITY_EDITOR
+            DestroyImmediate(root.GetChild(i).gameObject);
+#else
+        Destroy(root.GetChild(i).gameObject);
+#endif
+        }
+
+        generated.Clear();
+        roadSegments.Clear();
+        roadBlocks.Clear();
+
+        roadCount = 0;
+        buildingCount = 0;
+
+#if UNITY_EDITOR
+        UnityEditor.SceneView.RepaintAll();
+#endif
+    }
+
+
 }
