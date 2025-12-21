@@ -4,13 +4,17 @@
 public class FirstPersonController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed = 6f;
-    public float jumpForce = 6f;
+    public float walkSpeed = 6f;
+    public float runMultiplier = 2f;
+    public float jumpForce = 18f;
     public float gravity = -25f;
 
     [Header("Mouse Look")]
     public float mouseSensitivity = 2.5f;
     public Transform cameraPivot;
+
+    [Header("Animation")]
+    public Animator animator;
 
     private CharacterController controller;
     private float yVelocity;
@@ -20,8 +24,8 @@ public class FirstPersonController : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
 
-        controller.height = 1.8f;
-        controller.center = new Vector3(0f, 0.9f, 0f);
+        controller.height = 3f;
+        controller.center = new Vector3(0f, 0.3f, 0f);
         controller.minMoveDistance = 0f;
     }
 
@@ -60,15 +64,35 @@ public class FirstPersonController : MonoBehaviour
         float h = Input.GetAxis("Horizontal");
         float v = Input.GetAxis("Vertical");
 
-        Vector3 move = (transform.right * h + transform.forward * v) * moveSpeed;
+        bool isRunning = Input.GetKey(KeyCode.LeftShift);
+        float speedPercent = new Vector2(h, v).magnitude;
 
-        if (controller.isGrounded)
+        float currentSpeed = walkSpeed * (isRunning ? runMultiplier : 1f);
+        Vector3 move = (transform.right * h + transform.forward * v) * currentSpeed;
+
+        bool grounded = controller.isGrounded;
+
+        // ---------- ANIMATION ----------
+        if (animator != null)
+        {
+            animator.SetFloat("Speed", speedPercent, 0.2f, Time.deltaTime);
+            animator.SetBool("IsRunning", isRunning && speedPercent > 0.1f);
+            animator.SetBool("IsGrounded", grounded);
+        }
+        // -------------------------------
+
+        if (grounded)
         {
             if (yVelocity < 0f)
                 yVelocity = -2f;
 
             if (Input.GetKeyDown(KeyCode.Space))
+            {
                 yVelocity = jumpForce;
+
+                if (animator != null)
+                    animator.SetTrigger("Jump");
+            }
         }
 
         yVelocity += gravity * Time.deltaTime;
