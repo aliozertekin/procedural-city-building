@@ -252,14 +252,14 @@ Light:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   m_Enabled: 1
-  serializedVersion: 11
+  serializedVersion: 12
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_Intensity: 2
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
-  m_CookieSize: 10
+  m_CookieSize2D: {x: 10, y: 10}
   m_Shadows:
     m_Type: 2
     m_Resolution: -1
@@ -481,6 +481,81 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!1 &443414052
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 443414054}
+  - component: {fileID: 443414055}
+  m_Layer: 0
+  m_Name: NPC
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &443414054
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 443414052}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0, y: 0, z: -0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &443414055
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 443414052}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44ff75c54d0575745b51d625cdbe949e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NPCSpawner
+  cityGenerator: {fileID: 870816670}
+  npcCount: 100
+  spawnDelay: 1.5
+  npcPrefabs:
+  - prefab: {fileID: 6488826972771884260, guid: 5b47e8ac1ce6c5c479313da4094e8caf, type: 3}
+    weight: 0
+  - prefab: {fileID: 8738495721609720183, guid: cf551a8bd10eb4a4abc34c01305ff4da, type: 3}
+    weight: 0
+  - prefab: {fileID: 4602286018893424137, guid: 053ab6d91d6e8e3489aca136c8677459, type: 3}
+    weight: 0
+  - prefab: {fileID: 5507138504148570191, guid: a168964764ff0eb40934c99bb292c446, type: 3}
+    weight: 0
+  - prefab: {fileID: 6524284624272953828, guid: 0577fdeb811a83a49887000239fb6ff5, type: 3}
+    weight: 0
+  - prefab: {fileID: 8829154850212630227, guid: 5a2d8713fea8b894e9553e5bbe284266, type: 3}
+    weight: 0
+  - prefab: {fileID: 8872011485417712012, guid: 5938e8ddb3b604a41bcd7c57821e1cb3, type: 3}
+    weight: 0
+  - prefab: {fileID: 5127665253469060, guid: 04dadcfb8f3a78347aff46020e1aae74, type: 3}
+    weight: 0
+  - prefab: {fileID: 1352303529906801858, guid: 37bbbb489c971f94882d3ae7bcbd90e4, type: 3}
+    weight: 0
+  fallbackNpcHeight: 1.5
+  walkSpeed: 2
+  runSpeed: 5
+  waypointRadius: 2
+  pauseMin: 1
+  pauseMax: 4
+  walkSpeedParam: WalkSpeed
+  isWalkingParam: IsWalking
+  isRunningParam: IsRunning
 --- !u!1001 &467790557
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -553,6 +628,53 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: e47e87315effe894e85960f2e2349da7, type: 3}
+--- !u!1 &470433388
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 470433389}
+  - component: {fileID: 470433390}
+  m_Layer: 0
+  m_Name: QuestSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &470433389
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 470433388}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1957215979}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &470433390
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 470433388}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59cf17c7104786046b354400d8212914, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::QuestSystem
+  playerTransform: {fileID: 720985875}
+  cityGenerator: {fileID: 870816670}
+  checkInterval: 0.3
 --- !u!1 &560347696
 GameObject:
   m_ObjectHideFlags: 0
@@ -701,10 +823,10 @@ MonoBehaviour:
   terrainGenerator: {fileID: 10844433}
   seed: 152
   citySize: {x: 1000, y: 1000}
-  roadPrefab: {fileID: 6083251068355565048, guid: 319c379c73047f54589252b909fc6e13, type: 3}
   roadblockPrefab: {fileID: 3488551027294033470, guid: 1bfd3197640703b4bb2a35e4d63c34bb, type: 3}
   root: {fileID: 870816671}
-  roadMaterial: {fileID: 2100000, guid: 5e4b45f76e1b30740bda8d9a16c29fc2, type: 2}
+  roadMaterial: {fileID: 2100000, guid: 4d31f5253e69b2944b195c88a0428818, type: 2}
+  foundationMaterial: {fileID: 2100000, guid: 5015df84e8b47594b8259b41fd3a882a, type: 2}
   roadWidth: 4.0000005
   generateOnStart: 0
   maxSlope: 30
@@ -714,9 +836,22 @@ MonoBehaviour:
   densityFalloffPower: 1.2
   densityNoiseStrength: 0.25
   densityNoiseScale: 0.01
+  roadSegmentsPerBlock: 20
+  roadSurfaceOffset: 0.05
   numRoadblocks: 100
   roadBlockMinSpacing: 6
   roadBlockRadius: 2
+  generateSidewalks: 1
+  sidewalkWidth: 2
+  sidewalkOffset: 0.05
+  sidewalkMaterial: {fileID: 2100000, guid: 319eceb680f53f94a9f35becbdbd70bc, type: 2}
+  generateBridges: 1
+  bridgeCount: 30
+  bridgeWidth: 3
+  bridgeHeight: 5
+  bridgeMaterial: {fileID: 2100000, guid: 6915e1e58f0a0b94bb7c3790e94fb317, type: 2}
+  pedestrianWaypoints: []
+  sidewalkWaypoints: []
   roadBlocks:
   - position: {x: 433.875, y: 119.82074, z: 162}
     radius: 2
@@ -1322,7 +1457,7 @@ Transform:
   m_GameObject: {fileID: 906441404}
   serializedVersion: 2
   m_LocalRotation: {x: 0.6755902, y: 0, z: 0, w: 0.7372774}
-  m_LocalPosition: {x: 292.91055, y: 544, z: 171.2082}
+  m_LocalPosition: {x: 632.7307, y: 544, z: 1024}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1361,6 +1496,9 @@ MonoBehaviour:
   fpsCamera: {fileID: 441447515}
   fpsController: {fileID: 2041270683}
   topDownController: {fileID: 906441405}
+  pathfinderUIObject: {fileID: 0}
+  questUIObject: {fileID: 0}
+  questSystem: {fileID: 470433390}
 --- !u!4 &927944840
 Transform:
   m_ObjectHideFlags: 0
@@ -1423,7 +1561,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 932051658}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 1628.5}
+  m_LocalPosition: {x: 0, y: 0, z: 4864}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1431,7 +1569,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 563.9, y: 560}
+  m_AnchoredPosition: {x: 563.9, y: -2163}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!223 &932051661
@@ -1636,10 +1774,10 @@ MonoBehaviour:
   terrainGenerator: {fileID: 0}
   seed: 12345
   citySize: {x: 200, y: 200}
-  roadPrefab: {fileID: 6083251068355565048, guid: 319c379c73047f54589252b909fc6e13, type: 3}
   roadblockPrefab: {fileID: 0}
   root: {fileID: 0}
   roadMaterial: {fileID: 0}
+  foundationMaterial: {fileID: 0}
   roadWidth: 2
   generateOnStart: 0
   maxSlope: 30
@@ -1649,9 +1787,22 @@ MonoBehaviour:
   densityFalloffPower: 1.2
   densityNoiseStrength: 0.25
   densityNoiseScale: 0.01
+  roadSegmentsPerBlock: 20
+  roadSurfaceOffset: 0.05
   numRoadblocks: 10
   roadBlockMinSpacing: 6
   roadBlockRadius: 2
+  generateSidewalks: 1
+  sidewalkWidth: 2
+  sidewalkOffset: 0.08
+  sidewalkMaterial: {fileID: 0}
+  generateBridges: 1
+  bridgeCount: 3
+  bridgeWidth: 3
+  bridgeHeight: 5
+  bridgeMaterial: {fileID: 0}
+  pedestrianWaypoints: []
+  sidewalkWaypoints: []
   roadBlocks: []
   buildingPrefabs:
   - {fileID: 1284506016227826, guid: 01b91650dff47664487aeb6b9cbb58f5, type: 3}
@@ -1683,6 +1834,156 @@ MonoBehaviour:
   - {fileID: 1589469734983728, guid: 8b50b8b0ec84e0a4e830e2bfafbda8c3, type: 3}
   - {fileID: 1353471384135722, guid: e07e5d48f42ee1e429c24a82c4e4a4fd, type: 3}
   - {fileID: 1026770149594144, guid: 56352147ca68a3c47befb3ef1482ff2a, type: 3}
+--- !u!1 &1906573782
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1906573783}
+  - component: {fileID: 1906573787}
+  - component: {fileID: 1906573786}
+  - component: {fileID: 1906573785}
+  - component: {fileID: 1906573784}
+  m_Layer: 0
+  m_Name: QuestUI
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &1906573783
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1906573782}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1957215979}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1906573784
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1906573782}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 74984fdec78036449a6e6ceadae25378, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::QuestUI
+  questSystem: {fileID: 470433390}
+  uiFont: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
+  playerCamera: {fileID: 0}
+--- !u!114 &1906573785
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1906573782}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc42784cf147c0c48a680349fa168899, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.GraphicRaycaster
+  m_IgnoreReversedGraphics: 1
+  m_BlockingObjects: 0
+  m_BlockingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &1906573786
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1906573782}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0cd44c1031e13a943bb63640046fad76, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.CanvasScaler
+  m_UiScaleMode: 0
+  m_ReferencePixelsPerUnit: 100
+  m_ScaleFactor: 1
+  m_ReferenceResolution: {x: 800, y: 600}
+  m_ScreenMatchMode: 0
+  m_MatchWidthOrHeight: 0
+  m_PhysicalUnit: 3
+  m_FallbackScreenDPI: 96
+  m_DefaultSpriteDPI: 96
+  m_DynamicPixelsPerUnit: 1
+  m_PresetInfoIsWorld: 1
+--- !u!223 &1906573787
+Canvas:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1906573782}
+  m_Enabled: 1
+  serializedVersion: 3
+  m_RenderMode: 2
+  m_Camera: {fileID: 0}
+  m_PlaneDistance: 100
+  m_PixelPerfect: 0
+  m_ReceivesEvents: 1
+  m_OverrideSorting: 0
+  m_OverridePixelPerfect: 0
+  m_SortingBucketNormalizedSize: 0
+  m_VertexColorAlwaysGammaSpace: 0
+  m_AdditionalShaderChannelsFlag: 0
+  m_UpdateRectTransformForStandalone: 0
+  m_SortingLayerID: 0
+  m_SortingOrder: 0
+  m_TargetDisplay: 0
+--- !u!1 &1957215978
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1957215979}
+  m_Layer: 0
+  m_Name: Quest
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1957215979
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1957215978}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0, y: 0, z: -0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1906573783}
+  - {fileID: 470433389}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2041270676
 GameObject:
   m_ObjectHideFlags: 0
@@ -1798,6 +2099,7 @@ MeshRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
+  m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
 --- !u!114 &2041270683
 MonoBehaviour:
@@ -1850,3 +2152,5 @@ SceneRoots:
   - {fileID: 1718719896}
   - {fileID: 2041270684}
   - {fileID: 927944840}
+  - {fileID: 1957215979}
+  - {fileID: 443414054}
