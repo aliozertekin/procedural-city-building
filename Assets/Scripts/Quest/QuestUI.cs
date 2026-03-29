@@ -39,6 +39,20 @@ public class QuestUI : MonoBehaviour
     // Reference to camera for direction calculation
     public Camera playerCamera;
 
+    // ── Minimap ──
+    public Transform playerTransform;   // assign in Inspector or auto-found
+    private GameObject minimapPanel;
+    private RawImage minimapImage;
+    private GameObject playerDot;
+    private GameObject questDot;
+    private RenderTexture minimapRT;
+    private Camera minimapCam;
+
+    // How many world units the minimap covers (half-extent)
+    const float MINIMAP_RANGE = 120f;
+    const int MINIMAP_SIZE = 512;    // render texture resolution
+    const int MINIMAP_PX = 260;    // panel pixel size
+
     // Layout constants
     const int LEFT_X = 10;
     const int RIGHT_X = -10;   // from right edge
@@ -190,6 +204,88 @@ public class QuestUI : MonoBehaviour
         crt.sizeDelta = new Vector2(0, 18);
 
         compassGo.SetActive(false);
+
+        // ── MINIMAP PANEL ──
+        // Sits directly below the right panel (right panel is 220px tall, TOP_Y=-10)
+        // so minimap top = TOP_Y - rightPanelHeight - gap
+        minimapPanel = MakeBox(transform, "MinimapPanel",
+            anchor: new Vector2(1, 1), pivot: new Vector2(1, 1),
+            pos: new Vector2(RIGHT_X, -238),
+            size: new Vector2(PANEL_W, MINIMAP_PX + 28));   // +28 for header
+        minimapPanel.GetComponent<Image>().color = new Color(0, 0, 0, 0.85f);
+
+        // Header label
+        MakeLabel(minimapPanel.transform, "MINIMAP", 0, 14, Color.yellow, bold: true);
+
+        // RawImage — fills panel below the header
+        var rimGo = new GameObject("MinimapRT");
+        rimGo.transform.SetParent(minimapPanel.transform, false);
+        minimapImage = rimGo.AddComponent<RawImage>();
+        minimapImage.color = Color.white;
+
+        var rimRT = rimGo.GetComponent<RectTransform>();
+        rimRT.anchorMin = new Vector2(0, 0);
+        rimRT.anchorMax = new Vector2(1, 1);
+        rimRT.pivot = new Vector2(0.5f, 0.5f);
+        rimRT.offsetMin = new Vector2(4, 4);
+        rimRT.offsetMax = new Vector2(-4, -26);   // leave 26px for header
+
+        // Player dot — white circle using a label character
+        playerDot = MakeMinimapDot(minimapPanel.transform, "P", Color.white, 14);
+        questDot = MakeMinimapDot(minimapPanel.transform, "★", Color.yellow, 16);
+
+        // Create the RenderTexture + orthographic top-down camera
+        BuildMinimapCamera();
+    }
+
+    void BuildMinimapCamera()
+    {
+        minimapRT = new RenderTexture(MINIMAP_SIZE, MINIMAP_SIZE, 16);
+        minimapRT.name = "MinimapRT";
+        if (minimapImage != null) minimapImage.texture = minimapRT;
+
+        var camGo = new GameObject("MinimapCamera");
+        // Don't parent to UI — it lives in the world
+        minimapCam = camGo.AddComponent<Camera>();
+        minimapCam.orthographic = true;
+        minimapCam.orthographicSize = MINIMAP_RANGE;
+        minimapCam.nearClipPlane = 1f;
+        minimapCam.farClipPlane = 5000f;
+        minimapCam.targetTexture = minimapRT;
+        minimapCam.clearFlags = CameraClearFlags.SolidColor;
+        minimapCam.backgroundColor = new Color(0.13f, 0.22f, 0.13f);  // dark green
+
+        // Only render Default + TransparentFX layers; exclude UI
+        minimapCam.cullingMask = ~(1 << LayerMask.NameToLayer("UI"));
+
+        // Face straight down
+        camGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+
+        // Boost LOD and texture quality specifically when this camera renders.
+        // The minimap camera is always active so we can't rely on TopDownCamera's
+        // OnEnable/OnDisable — we need per-render hooks instead.
+        camGo.AddComponent<MinimapQualityBoost>();
+    }
+
+    GameObject MakeMinimapDot(Transform parent, string symbol, Color color, int size)
+    {
+        var go = new GameObject("Dot_" + symbol);
+        go.transform.SetParent(parent, false);
+        var txt = go.AddComponent<Text>();
+        txt.font = font;
+        txt.text = symbol;
+        txt.fontSize = size;
+        txt.color = color;
+        txt.alignment = TextAnchor.MiddleCenter;
+        txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+        txt.verticalOverflow = VerticalWrapMode.Overflow;
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0, 0);
+        rt.anchorMax = new Vector2(0, 0);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(20, 20);
+        return go;
     }
 
     // ─────────────────────────────────────────
@@ -333,6 +429,7 @@ public class QuestUI : MonoBehaviour
         }
 
         UpdateCompass();
+        UpdateMinimap();
     }
 
     void UpdateCompass()
@@ -378,6 +475,74 @@ public class QuestUI : MonoBehaviour
                 : $"{dist / 1000f:F1}km";
 
         compassGo.SetActive(true);
+    }
+
+    void UpdateMinimap()
+    {
+        if (minimapPanel == null || !minimapPanel.activeInHierarchy) return;
+
+        // Auto-find player transform if not assigned
+        if (playerTransform == null)
+        {
+            var fps = FindFirstObjectByType<FirstPersonController>();
+            if (fps != null) playerTransform = fps.transform;
+        }
+        if (playerTransform == null || minimapCam == null) return;
+
+        // Move minimap camera above the player, looking straight down
+        Vector3 p = playerTransform.position;
+        minimapCam.transform.position = new Vector3(p.x, p.y + 300f, p.z);
+
+        // ── Position the player dot at the centre of the minimap image ──
+        // Player is always centred since the camera follows them
+        PositionDotOnMinimap(playerDot, Vector3.zero);   // zero offset = centre
+
+        // ── Rotate player dot to show facing direction ──
+        if (playerDot != null)
+        {
+            float yaw = playerTransform.eulerAngles.y;
+            playerDot.GetComponent<RectTransform>().localRotation =
+                Quaternion.Euler(0, 0, -yaw);
+        }
+
+        // ── Quest dot ──
+        var aq = questSystem?.GetActiveQuest();
+        if (aq != null && aq.currentStep < aq.steps.Count && questDot != null)
+        {
+            Vector3 target = aq.steps[aq.currentStep].worldPosition;
+            Vector3 offset = target - p;   // world offset from player
+            PositionDotOnMinimap(questDot, offset);
+            questDot.SetActive(true);
+        }
+        else if (questDot != null)
+        {
+            questDot.SetActive(false);
+        }
+    }
+
+    // Converts a world-space offset from the player into a pixel position
+    // on the minimap RawImage RectTransform.
+    void PositionDotOnMinimap(GameObject dot, Vector3 worldOffset)
+    {
+        if (dot == null || minimapImage == null) return;
+
+        // Get the pixel rect of the minimap image inside the panel
+        var imgRT = minimapImage.GetComponent<RectTransform>();
+
+        // Normalised position: clamp to [-1, 1] in each axis
+        float nx = Mathf.Clamp(worldOffset.x / MINIMAP_RANGE, -1f, 1f);
+        float nz = Mathf.Clamp(worldOffset.z / MINIMAP_RANGE, -1f, 1f);
+
+        // Convert to local position within the panel
+        // imgRT rect: offsetMin=(4,4) offsetMax=(-4,-26)
+        // We need to map [-1,1] → [imgRT.rect.min, imgRT.rect.max]
+        Rect r = imgRT.rect;
+        float px = r.x + (nx * 0.5f + 0.5f) * r.width;
+        float py = r.y + (nz * 0.5f + 0.5f) * r.height;
+
+        var rt = dot.GetComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0, 0);
+        rt.anchoredPosition = new Vector2(px, py);
     }
 
     // ─────────────────────────────────────────
@@ -473,4 +638,44 @@ public class QuestUI : MonoBehaviour
     }
 
     Font GetFont() => font;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MINIMAP QUALITY BOOST
+//  Attached to the minimap camera. Uses OnPreRender / OnPostRender to
+//  temporarily override global quality settings so the minimap renders
+//  at full LOD and full texture quality, then restores the originals.
+//  This works independently of which player-camera is currently active.
+// ─────────────────────────────────────────────────────────────────────────────
+public class MinimapQualityBoost : MonoBehaviour
+{
+    [Tooltip("LOD bias while the minimap renders. " +
+             "Higher = objects keep their high-detail LOD at greater distances.")]
+    public float lodBias = 4f;
+
+    private float savedLodBias;
+    private float savedShadowDist;
+    private int savedTextureLimit;
+    private AnisotropicFiltering savedAniso;
+
+    void OnPreRender()
+    {
+        savedLodBias = QualitySettings.lodBias;
+        savedShadowDist = QualitySettings.shadowDistance;
+        savedTextureLimit = QualitySettings.globalTextureMipmapLimit;
+        savedAniso = QualitySettings.anisotropicFiltering;
+
+        QualitySettings.lodBias = lodBias;
+        QualitySettings.shadowDistance = 0f;      // no shadows needed on minimap
+        QualitySettings.globalTextureMipmapLimit = 0;       // full-res textures
+        QualitySettings.anisotropicFiltering = AnisotropicFiltering.ForceEnable;
+    }
+
+    void OnPostRender()
+    {
+        QualitySettings.lodBias = savedLodBias;
+        QualitySettings.shadowDistance = savedShadowDist;
+        QualitySettings.globalTextureMipmapLimit = savedTextureLimit;
+        QualitySettings.anisotropicFiltering = savedAniso;
+    }
 }

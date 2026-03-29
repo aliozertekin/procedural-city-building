@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -34,6 +34,18 @@ public class TopDownCamera : MonoBehaviour
     public float smoothTime = 0.15f;
     private Vector3 velocity = Vector3.zero;
 
+    [Header("Render Quality")]
+    [Tooltip("Unity LOD bias — higher = objects keep their high-detail LOD at greater distance. " +
+             "2–4 is a good range for a city top-down view.")]
+    public float lodBias = 3f;
+
+    [Tooltip("Maximum shadow draw distance while this camera is active.")]
+    public float shadowDistance = 500f;
+
+    [Tooltip("Camera far clip plane. Raise this if distant buildings disappear.")]
+    public float farClipPlane = 8000f;
+
+    // ─────────────────────────────────────────
     private Camera cam;
     private Terrain terrain;
 
@@ -41,30 +53,71 @@ public class TopDownCamera : MonoBehaviour
     {
         cam = GetComponent<Camera>();
         cam.orthographic = false;
-        cam.farClipPlane = 5000f; // <-- increase far clip
+        cam.farClipPlane = farClipPlane;
         terrain = FindFirstObjectByType<Terrain>();
         CenterOnTerrain();
     }
 
+    void OnEnable()
+    {
+        // Apply render-quality overrides whenever this camera becomes active.
+        ApplyRenderQuality();
+    }
 
+    void OnDisable()
+    {
+        // Restore defaults so the FPS camera isn't affected.
+        RestoreRenderQuality();
+    }
+
+    // ─────────────────────────────────────────
+    //  RENDER QUALITY
+    // ─────────────────────────────────────────
+
+    private float savedLodBias;
+    private float savedShadowDist;
+
+    void ApplyRenderQuality()
+    {
+        savedLodBias = QualitySettings.lodBias;
+        savedShadowDist = QualitySettings.shadowDistance;
+
+        // High LOD bias keeps prefabs in their best LOD level further from camera,
+        // preventing the "low quality / pop-in" look in top-down view.
+        QualitySettings.lodBias = lodBias;
+        QualitySettings.shadowDistance = shadowDistance;
+
+        if (cam != null)
+            cam.farClipPlane = farClipPlane;
+    }
+
+    void RestoreRenderQuality()
+    {
+        QualitySettings.lodBias = savedLodBias;
+        QualitySettings.shadowDistance = savedShadowDist;
+    }
+
+    // ─────────────────────────────────────────
     void Update()
     {
         HandleRotation();
         HandleZoom();
+
+        // Keep far-clip in sync if the inspector value is changed at runtime.
+        if (cam != null && !Mathf.Approximately(cam.farClipPlane, farClipPlane))
+            cam.farClipPlane = farClipPlane;
     }
 
     void LateUpdate()
     {
         Vector3 targetPos = transform.position;
 
-        // Follow target
         if (followTarget && target != null)
         {
             Vector3 rotatedOffset = Quaternion.Euler(0, transform.eulerAngles.y, 0) * targetOffset;
             targetPos = target.position + rotatedOffset;
         }
 
-        // Manual movement
         Vector2 panInput = GetPanInput();
         if (panInput.sqrMagnitude > 0.0001f)
         {
@@ -85,6 +138,8 @@ public class TopDownCamera : MonoBehaviour
         Vector3 euler = transform.eulerAngles;
         transform.rotation = Quaternion.Euler(pitch, euler.y, 0f);
     }
+
+    // ─────────────────────────────────────────
     Vector2 GetPanInput()
     {
         Vector2 input = Vector2.zero;
@@ -98,30 +153,27 @@ public class TopDownCamera : MonoBehaviour
             if (keyboard.aKey.isPressed) input.x -= 1;
             if (keyboard.dKey.isPressed) input.x += 1;
         }
-#else
-        input.x += Input.GetAxisRaw("Horizontal");
-        input.y += Input.GetAxisRaw("Vertical");
-#endif
 
-#if ENABLE_INPUT_SYSTEM
         var mouse = Mouse.current;
         if (useEdgePan && mouse != null)
         {
             Vector2 mPos = mouse.position.ReadValue();
             if (mPos.x >= Screen.width - edgePanBorder) input.x += 1;
             else if (mPos.x <= edgePanBorder) input.x -= 1;
-
             if (mPos.y >= Screen.height - edgePanBorder) input.y += 1;
             else if (mPos.y <= edgePanBorder) input.y -= 1;
         }
 #else
+        input.x += Input.GetAxisRaw("Horizontal");
+        input.y += Input.GetAxisRaw("Vertical");
+
         if (useEdgePan)
         {
             Vector2 m = Input.mousePosition;
             if (m.x >= Screen.width - edgePanBorder) input.x += 1;
-            else if (m.x <= edgePanBorder) input.x -= 1;
+            else if (m.x <= edgePanBorder)           input.x -= 1;
             if (m.y >= Screen.height - edgePanBorder) input.y += 1;
-            else if (m.y <= edgePanBorder) input.y -= 1;
+            else if (m.y <= edgePanBorder)            input.y -= 1;
         }
 #endif
 
@@ -141,8 +193,7 @@ public class TopDownCamera : MonoBehaviour
         if (Mathf.Abs(scroll) < 1e-4f) return;
 
         Vector3 pos = transform.position;
-        pos.y -= scroll * zoomSpeed * Time.deltaTime;
-        pos.y = Mathf.Clamp(pos.y, minHeight, maxHeight);
+        pos.y = Mathf.Clamp(pos.y - scroll * zoomSpeed * Time.deltaTime, minHeight, maxHeight);
         transform.position = pos;
     }
 
@@ -168,12 +219,16 @@ public class TopDownCamera : MonoBehaviour
             transform.Rotate(Vector3.up, rot * rotationSpeed * Time.deltaTime, Space.World);
     }
 
+    // ─────────────────────────────────────────
     void CenterOnTerrain()
     {
         if (terrain == null) return;
 
         Vector3 center = terrain.transform.position + terrain.terrainData.size / 2f;
-        transform.position = center + new Vector3(0, Mathf.Lerp(minHeight, maxHeight, 0.5f), -terrain.terrainData.size.z / 3f);
+        transform.position =
+            center + new Vector3(0,
+                                 Mathf.Lerp(minHeight, maxHeight, 0.5f),
+                                 -terrain.terrainData.size.z / 3f);
         transform.rotation = Quaternion.Euler(pitch, 0, 0);
     }
 

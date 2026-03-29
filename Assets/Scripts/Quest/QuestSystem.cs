@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 // ─────────────────────────────────────────────
@@ -14,9 +15,9 @@ public enum QuestStatus { Available, Active, Completed, Failed }
 public class QuestStep
 {
     public QuestStepType type;
-    public string description;   // shown in UI
-    public Vector3 worldPosition; // marker position
-    public float radius = 4f;   // how close player must get
+    public string description;
+    public Vector3 worldPosition;
+    public float radius = 4f;
     [HideInInspector] public bool done;
 }
 
@@ -45,11 +46,10 @@ public class QuestSystem : MonoBehaviour
     public CityGenerator cityGenerator;
 
     [Header("Settings")]
-    public float checkInterval = 0.3f;   // seconds between proximity checks
+    public float checkInterval = 0.3f;
 
-    // Events the UI listens to
     public event Action<Quest> OnQuestAccepted;
-    public event Action<Quest, int> OnStepCompleted;   // quest, step index
+    public event Action<Quest, int> OnStepCompleted;
     public event Action<Quest> OnQuestCompleted;
     public event Action OnQuestsChanged;
 
@@ -58,11 +58,9 @@ public class QuestSystem : MonoBehaviour
     private List<Quest> allQuests = new List<Quest>();
     private Quest activeQuest;
 
-    // ── world markers ──
     private GameObject markerParent;
     private GameObject currentMarker;
 
-    // ── built-in quest templates ──
     static readonly string[] deliveryItems =
         { "Package", "Documents", "Medicine", "Food Crate", "Spare Parts" };
 
@@ -79,9 +77,6 @@ public class QuestSystem : MonoBehaviour
         if (cityGenerator == null)
             cityGenerator = FindFirstObjectByType<CityGenerator>();
 
-        // Subscribe to OnCityGenerated so quests always use real road positions.
-        // If the city is already generated (e.g. generated before QuestSystem.Start),
-        // we fall through and call GenerateQuests() directly after a frame delay.
         if (cityGenerator != null)
             cityGenerator.OnCityGenerated += OnCityReady;
 
@@ -95,16 +90,11 @@ public class QuestSystem : MonoBehaviour
             cityGenerator.OnCityGenerated -= OnCityReady;
     }
 
-    void OnCityReady()
-    {
-        // City just finished generating — rebuild quests from fresh road data
-        GenerateQuests();
-    }
+    void OnCityReady() => GenerateQuests();
 
-    System.Collections.IEnumerator DelayedGenerate()
+    IEnumerator DelayedGenerate()
     {
-        yield return null; // wait one frame for city to generate if generateOnStart=true
-        // Only generate if we don't already have quests from OnCityReady
+        yield return null;
         if (allQuests.Count == 0)
             GenerateQuests();
     }
@@ -122,7 +112,6 @@ public class QuestSystem : MonoBehaviour
 
         if (segs != null && segs.Count > 0)
         {
-            // collect unique road nodes
             HashSet<string> seen = new HashSet<string>();
             foreach (var s in segs)
             {
@@ -131,9 +120,25 @@ public class QuestSystem : MonoBehaviour
                 if (seen.Add(ka)) nodes.Add(s.start);
                 if (seen.Add(kb)) nodes.Add(s.end);
             }
+
+            // Keep only nodes inside the city footprint to prevent quests
+            // spawning at map edges where geometry is incomplete or missing.
+            if (nodes.Count > 0 && cityGenerator != null)
+            {
+                Vector3 centroid = Vector3.zero;
+                foreach (var n in nodes) centroid += n;
+                centroid /= nodes.Count;
+
+                float halfX = cityGenerator.citySize.x * 0.45f;
+                float halfZ = cityGenerator.citySize.y * 0.45f;
+
+                nodes = nodes.Where(n =>
+                    Mathf.Abs(n.x - centroid.x) <= halfX &&
+                    Mathf.Abs(n.z - centroid.z) <= halfZ
+                ).ToList();
+            }
         }
 
-        // fallback: scatter points around world origin if no road data
         if (nodes.Count < 6)
         {
             for (int i = 0; i < 20; i++)
@@ -143,21 +148,21 @@ public class QuestSystem : MonoBehaviour
         }
 
         var rng = new System.Random(42);
-        string[] items = deliveryItems;
 
         for (int q = 0; q < 6; q++)
         {
-            string item = items[rng.Next(items.Length)];
+            string item = deliveryItems[rng.Next(deliveryItems.Length)];
 
-            // pick 3 distinct positions
+            // 2-step quests (PickUp + Deliver).
+            // The original 3-step design had a GoTo step whose location could
+            // coincide with the player spawn, causing the marker to flash on the
+            // character and immediately auto-complete. Removing it fixes that.
             Vector3 pickupPos = nodes[rng.Next(nodes.Count)];
             Vector3 deliverPos = nodes[rng.Next(nodes.Count)];
-            while (Vector3.Distance(pickupPos, deliverPos) < 30f)
-                deliverPos = nodes[rng.Next(nodes.Count)];
 
-            Vector3 startPos = nodes[rng.Next(nodes.Count)];
-            while (Vector3.Distance(startPos, pickupPos) < 20f)
-                startPos = nodes[rng.Next(nodes.Count)];
+            int safety = 0;
+            while (Vector3.Distance(pickupPos, deliverPos) < 50f && safety++ < 30)
+                deliverPos = nodes[rng.Next(nodes.Count)];
 
             var quest = new Quest
             {
@@ -169,24 +174,17 @@ public class QuestSystem : MonoBehaviour
                 {
                     new QuestStep
                     {
-                        type        = QuestStepType.GoTo,
-                        description = $"Go to the pickup location",
-                        worldPosition = startPos,
-                        radius      = 5f
-                    },
-                    new QuestStep
-                    {
-                        type        = QuestStepType.PickUp,
-                        description = $"Pick up the {item}",
+                        type          = QuestStepType.PickUp,
+                        description   = $"Pick up the {item}",
                         worldPosition = pickupPos,
-                        radius      = 5f
+                        radius        = 6f
                     },
                     new QuestStep
                     {
-                        type        = QuestStepType.Deliver,
-                        description = $"Deliver the {item} to the destination",
+                        type          = QuestStepType.Deliver,
+                        description   = $"Deliver the {item} to the destination",
                         worldPosition = deliverPos,
-                        radius      = 5f
+                        radius        = 6f
                     }
                 }
             };
@@ -207,15 +205,41 @@ public class QuestSystem : MonoBehaviour
     public void AcceptQuest(Quest q)
     {
         if (q.status != QuestStatus.Available) return;
-        if (activeQuest != null) return; // one at a time
+        if (activeQuest != null) return;
 
         activeQuest = q;
         q.status = QuestStatus.Active;
         q.currentStep = 0;
 
-        SpawnMarker(q.steps[0].worldPosition);
-        OnQuestAccepted?.Invoke(q);
-        OnQuestsChanged?.Invoke();
+        // Immediately advance past any steps the player is already within radius of.
+        // Without this, a step at the player's location would flash a marker on them
+        // before auto-completing on the next ProximityLoop tick (up to 0.3 s later).
+        AdvanceCompletedSteps();
+
+        if (activeQuest != null)          // quest might have completed immediately
+        {
+            SpawnMarker(q.steps[q.currentStep].worldPosition);
+            OnQuestAccepted?.Invoke(q);
+            OnQuestsChanged?.Invoke();
+        }
+    }
+
+    void AdvanceCompletedSteps()
+    {
+        if (activeQuest == null || playerTransform == null) return;
+
+        while (activeQuest != null && activeQuest.currentStep < activeQuest.steps.Count)
+        {
+            var step = activeQuest.steps[activeQuest.currentStep];
+            float dist = Vector3.Distance(
+                new Vector3(playerTransform.position.x, 0, playerTransform.position.z),
+                new Vector3(step.worldPosition.x, 0, step.worldPosition.z));
+
+            if (dist <= step.radius)
+                CompleteCurrentStep();
+            else
+                break;
+        }
     }
 
     public void AbandonQuest()
@@ -274,7 +298,6 @@ public class QuestSystem : MonoBehaviour
         }
         else
         {
-            // all steps done
             q.status = QuestStatus.Completed;
             totalPoints += q.rewardPoints;
             activeQuest = null;
@@ -285,94 +308,102 @@ public class QuestSystem : MonoBehaviour
     }
 
     // ─────────────────────────────────────────
-    //  MARKER
+    //  MARKER — large always-visible beacon
     // ─────────────────────────────────────────
 
     void SpawnMarker(Vector3 pos)
     {
         DestroyMarker();
 
-        // Snap Y to terrain surface using a downward raycast from high up,
-        // so the marker always stands on the ground regardless of stored Y value
         float groundY = pos.y;
-        if (Physics.Raycast(new Vector3(pos.x, 500f, pos.z), Vector3.down, out RaycastHit hit, 1000f))
+        if (Physics.Raycast(new Vector3(pos.x, 500f, pos.z), Vector3.down,
+                            out RaycastHit hit, 1000f))
             groundY = hit.point.y;
 
-        currentMarker = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        currentMarker.name = "QuestMarker";
+        currentMarker = new GameObject("QuestMarker");
         currentMarker.transform.SetParent(markerParent.transform);
-        currentMarker.transform.localScale = new Vector3(1f, 8f, 1f);
-        currentMarker.transform.position = new Vector3(pos.x, groundY + 4f, pos.z);
+        currentMarker.transform.position = new Vector3(pos.x, groundY, pos.z);
 
-        Destroy(currentMarker.GetComponent<Collider>());
+        Material goldMat = MakeMarkerMaterial(new Color(1f, 0.80f, 0f), 4f);
+        Material whiteMat = MakeMarkerMaterial(Color.white, 2f);
 
-        var mr = currentMarker.GetComponent<MeshRenderer>();
-        if (mr)
+        // Base disc
+        AddPrimitive(PrimitiveType.Cylinder, currentMarker.transform,
+                     new Vector3(0, 0.4f, 0), new Vector3(8f, 0.4f, 8f), goldMat);
+        // Pole (Unity cylinder y-scale = half-height, so 20 → 40 real units)
+        AddPrimitive(PrimitiveType.Cylinder, currentMarker.transform,
+                     new Vector3(0, 21f, 0), new Vector3(1.2f, 20f, 1.2f), goldMat);
+        // Outer orb
+        AddPrimitive(PrimitiveType.Sphere, currentMarker.transform,
+                     new Vector3(0, 45f, 0), Vector3.one * 8f, goldMat);
+        // Inner bright core
+        AddPrimitive(PrimitiveType.Sphere, currentMarker.transform,
+                     new Vector3(0, 45f, 0), Vector3.one * 4f, whiteMat);
+
+        currentMarker.AddComponent<QuestMarkerPulse>();
+    }
+
+    static void AddPrimitive(PrimitiveType type, Transform parent,
+                             Vector3 localPos, Vector3 localScale, Material mat)
+    {
+        var go = GameObject.CreatePrimitive(type);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = localPos;
+        go.transform.localScale = localScale;
+        var mr = go.GetComponent<MeshRenderer>();
+        if (mr) mr.sharedMaterial = mat;
+        var col = go.GetComponent<Collider>();
+        if (col) UnityEngine.Object.Destroy(col);
+    }
+
+    static Material MakeMarkerMaterial(Color col, float emissionStrength)
+    {
+        Shader sh = Shader.Find("Universal Render Pipeline/Lit")
+                 ?? Shader.Find("Universal Render Pipeline/Unlit")
+                 ?? Shader.Find("Standard")
+                 ?? Shader.Find("HDRP/Lit")
+                 ?? Shader.Find("Unlit/Color");
+
+        if (sh == null)
         {
-            // Try every known shader name across BIRP / URP / HDRP.
-            // Fall back to the guaranteed-present hidden/InternalErrorShader
-            // which at least renders pink so the marker is visible.
-            Shader sh = Shader.Find("Universal Render Pipeline/Lit")
-                     ?? Shader.Find("Universal Render Pipeline/Unlit")
-                     ?? Shader.Find("Unlit/Color")
-                     ?? Shader.Find("Standard")
-                     ?? Shader.Find("HDRP/Lit");
-
-            Material mat;
-            if (sh != null)
-            {
-                mat = new Material(sh);
-            }
-            else
-            {
-                // Absolute fallback: grab whatever shader the terrain uses
-                var anyRenderer = UnityEngine.Object.FindFirstObjectByType<MeshRenderer>();
-                mat = anyRenderer != null
-                    ? new Material(anyRenderer.sharedMaterial.shader)
-                    : new Material(Shader.Find("Hidden/InternalErrorShader"));
-            }
-
-            Color gold = new Color(1f, 0.85f, 0f);
-            mat.color = gold;
-
-            // Emission works in both BIRP and URP
-            if (mat.HasProperty("_EmissionColor"))
-            {
-                mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", gold * 2.5f);
-            }
-            // URP uses _BaseColor instead of _Color
-            if (mat.HasProperty("_BaseColor"))
-                mat.SetColor("_BaseColor", gold);
-
-            mr.sharedMaterial = mat;
+            var any = UnityEngine.Object.FindFirstObjectByType<MeshRenderer>();
+            sh = any != null ? any.sharedMaterial.shader
+                             : Shader.Find("Hidden/InternalErrorShader");
         }
 
-        // pulsing handled by QuestMarkerPulse if you want, or just static
-        currentMarker.AddComponent<QuestMarkerPulse>();
+        var mat = new Material(sh);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", col);
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+        if (mat.HasProperty("_EmissionColor"))
+        {
+            mat.EnableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", col * emissionStrength);
+        }
+        mat.EnableKeyword("_EMISSIVE_COLOR_MAP");
+        return mat;
     }
 
     void DestroyMarker()
     {
-        if (currentMarker != null)
-            Destroy(currentMarker);
+        if (currentMarker != null) Destroy(currentMarker);
         currentMarker = null;
     }
 }
 
 // ─────────────────────────────────────────────
-//  SIMPLE PULSE ANIMATION ON THE MARKER
+//  PULSE ANIMATION
 // ─────────────────────────────────────────────
 
 public class QuestMarkerPulse : MonoBehaviour
 {
     float baseY;
     void Start() => baseY = transform.position.y;
+
     void Update()
     {
-        float y = baseY + Mathf.Sin(Time.time * 2f) * 0.5f;
+        float y = baseY + Mathf.Sin(Time.time * 1.8f) * 1.2f;
         transform.position = new Vector3(transform.position.x, y, transform.position.z);
-        float s = 1f + Mathf.Sin(Time.time * 3f) * 0.08f;
-        transform.localScale = new Vector3(s, 8f * s, s);
+        float s = 1f + Mathf.Sin(Time.time * 2.5f) * 0.06f;
+        transform.localScale = Vector3.one * s;
     }
 }

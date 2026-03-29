@@ -47,26 +47,21 @@ public class CityGenerator : MonoBehaviour
     public float sidewalkOffset = 0.08f;   // slightly above road surface
     public Material sidewalkMaterial;
 
-    [Header("Pedestrian Bridges")]
-    public bool generateBridges = true;
-    public int bridgeCount = 3;
-    public float bridgeWidth = 3f;
-    public float bridgeHeight = 5f;       // height above ground
-    public Material bridgeMaterial;
+    [Header("Trees")]
+    public bool generateTrees = true;
+    [Tooltip("Number of trees to attempt to place.")]
+    public int treeCount = 200;
+    [Tooltip("Minimum distance between any two trees.")]
+    public float treeMinSpacing = 4f;
+    [Tooltip("Minimum distance a tree must be from any road or building centre.")]
+    public float treeClearanceFromRoad = 6f;
+    [Tooltip("Assign up to 3 tree prefabs. One is picked randomly per tree. Leave empty to use the procedural tree.")]
+    public List<GameObject> treePrefabs = new List<GameObject>();
 
-    // Public list of sidewalk/bridge waypoints for NPC use
+    // Public list of sidewalk waypoints for NPC use
     [HideInInspector] public List<Vector3> pedestrianWaypoints = new List<Vector3>();
     // Sidewalk-only waypoints (subset of pedestrianWaypoints) for NPC sidewalk preference
     [HideInInspector] public List<Vector3> sidewalkWaypoints = new List<Vector3>();
-
-    // Road segment data with direction — used to correctly orient bridges
-    private struct RoadSegFull
-    {
-        public Vector3 a, b;      // inset endpoints
-        public Vector3 leftA, leftB, rightA, rightB; // edge midpoints
-        public bool isHorizontal; // true = runs along X axis
-    }
-    private List<RoadSegFull> roadSegsFull = new List<RoadSegFull>();
 
     private System.Random rng;
     private List<GameObject> generated = new List<GameObject>();
@@ -146,6 +141,9 @@ public class CityGenerator : MonoBehaviour
 
         GenerateGridCity();
 
+        if (generateTrees)
+            PlaceTrees();
+
         if (roadblockPrefab != null && numRoadblocks > 0)
             GenerateRoadblocks(numRoadblocks);
 
@@ -197,7 +195,6 @@ public class CityGenerator : MonoBehaviour
         roadBlocks.Clear();
         pedestrianWaypoints.Clear();
         sidewalkWaypoints.Clear();
-        roadSegsFull.Clear();
         roadCount = buildingCount = 0;
 #if UNITY_EDITOR
         UnityEditor.SceneView.RepaintAll();
@@ -272,7 +269,7 @@ public class CityGenerator : MonoBehaviour
 
         float halfW = width * 0.5f;
 
-        // Roads go full length — intersection gaps are filled by CreateIntersectionQuad()
+        // Roads go full length — overlapping road meshes share the same material so no seam is visible
         Vector3 dir = (end - start).normalized;
 
         // ── 1. Build spine ──────────────────────────────────────
@@ -347,20 +344,6 @@ public class CityGenerator : MonoBehaviour
 
         // Use original (non-inset) endpoints so the pathfinder graph connects correctly at junctions
         roadSegments.Add(new RoadSeg { a = start, b = end, id = roadCount });
-
-        // Store full segment data for bridge placement
-        Vector3 segDir = (end - start).normalized;
-        bool isHoriz = Mathf.Abs(segDir.x) > Mathf.Abs(segDir.z);
-        roadSegsFull.Add(new RoadSegFull
-        {
-            a = spine[0],
-            b = spine[steps],
-            leftA = leftEdge[0],
-            leftB = leftEdge[steps],
-            rightA = rightEdge[0],
-            rightB = rightEdge[steps],
-            isHorizontal = isHoriz
-        });
 
         roadCount++;
 
@@ -492,15 +475,6 @@ public class CityGenerator : MonoBehaviour
         _sidewalkMatCache = new Material(FindLitShader());
         _sidewalkMatCache.color = new Color(0.72f, 0.72f, 0.68f); // pale concrete
         return _sidewalkMatCache;
-    }
-
-    Material _bridgeMatCache;
-    Material MakeBridgeMat()
-    {
-        if (_bridgeMatCache != null) return _bridgeMatCache;
-        _bridgeMatCache = new Material(FindLitShader());
-        _bridgeMatCache.color = new Color(0.6f, 0.58f, 0.55f); // stone grey
-        return _bridgeMatCache;
     }
 
     // =========================================================
@@ -660,11 +634,17 @@ public class CityGenerator : MonoBehaviour
 
     bool IsCollidingRoad(Bounds b)
     {
-        float margin = 0.5f;
+        // Clear zone = half road + gap + full sidewalk width + small safety margin
+        // This prevents buildings from spawning over sidewalks too.
+        float clearance = roadWidth * 0.5f + 0.25f + sidewalkWidth + 1.0f;
         foreach (var seg in roadSegments)
         {
-            Vector3 closest = ClosestPtOnSeg(seg.a, seg.b, b.center);
-            if (Vector3.Distance(closest, b.center) < roadWidth * 0.5f + margin + b.extents.magnitude)
+            // Use XZ distance only — road segments span the full terrain height range
+            Vector2 bc = new Vector2(b.center.x, b.center.z);
+            Vector2 sa = new Vector2(seg.a.x, seg.a.z);
+            Vector2 sb = new Vector2(seg.b.x, seg.b.z);
+            float dist = DistancePointToSegmentXZ(bc, sa, sb);
+            if (dist < clearance + b.extents.magnitude)
                 return true;
         }
         return false;
@@ -722,17 +702,30 @@ public class CityGenerator : MonoBehaviour
             attempts++;
             var seg = roadSegments[rng.Next(roadSegments.Count)];
 
+            // Pick a point 30-70% along the segment
             float t = 0.3f + (float)(rng.NextDouble() * 0.4f);
             Vector3 mid = Vector3.Lerp(seg.a, seg.b, t);
-            float surfaceY = mid.y; // already exact road surface Y
 
-            Vector3 fwd = (seg.b - seg.a).normalized;
-            if (fwd == Vector3.zero) fwd = Vector3.forward;
-            Quaternion rot = Quaternion.LookRotation(fwd) * Quaternion.Euler(0f, -90f, 0f);
+            // Sample the ACTUAL terrain surface at this XZ position
+            float surfaceY = TerrainY(mid, roadSurfaceOffset);
+            mid.y = surfaceY;
 
-            // We want bounds.min.y == surfaceY
-            // bounds.min.y = pivot.y + prefabBottomToCenter
-            // So: pivot.y = surfaceY - prefabBottomToCenter
+            // Road forward direction (XZ only — don't tilt forward vector into terrain)
+            Vector3 fwdXZ = seg.b - seg.a; fwdXZ.y = 0f;
+            if (fwdXZ.sqrMagnitude < 0.001f) fwdXZ = Vector3.forward;
+            fwdXZ.Normalize();
+
+            // Terrain normal at spawn point so the block sits flush on the slope
+            Vector3 surfNorm = TerrainNormal(mid);
+
+            // Build rotation: block's local Z = road direction, local Y = surface normal.
+            // Then rotate -90° around local Y so the block faces ACROSS the road (blocking it).
+            Quaternion alignToSlope = Quaternion.LookRotation(fwdXZ, surfNorm);
+            Quaternion rot = alignToSlope * Quaternion.Euler(0f, -90f, 0f);
+
+            // Place pivot so the bottom of the prefab bounds sits exactly on surfaceY.
+            // prefabBottomToCenter = distance from pivot to bounds.min.y (measured at origin).
+            // pivot.y = surfaceY - prefabBottomToCenter  →  bounds.min.y = surfaceY
             float pivotY = surfaceY - prefabBottomToCenter;
             Vector3 spawnPos = new Vector3(mid.x, pivotY, mid.z);
 
@@ -808,6 +801,18 @@ public class CityGenerator : MonoBehaviour
             }
         }
 
+        // Pre-compute arm counts for each grid point (needed for connectivity fill)
+        int[,] armCount = new int[cols + 1, rows + 1];
+        for (int i = 0; i <= cols; i++)
+            for (int j = 0; j <= rows; j++)
+            {
+                bool n = (j < rows) && hasV[i, j];
+                bool s = (j > 0) && hasV[i, j - 1];
+                bool e = (i < cols) && hasH[i, j];
+                bool w = (i > 0) && hasH[i - 1, j];
+                armCount[i, j] = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
+            }
+
         // Fill intersection squares and sidewalk corners at every grid point
         for (int i = 0; i <= cols; i++)
         {
@@ -817,14 +822,36 @@ public class CityGenerator : MonoBehaviour
                 bool s = (j > 0) && hasV[i, j - 1];
                 bool e = (i < cols) && hasH[i, j];
                 bool w = (i > 0) && hasH[i - 1, j];
-                int arms = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
-                if (arms >= 2)
-                {
-                    CreateIntersectionQuad(pts[i, j], roadWidth);
-                    if (generateSidewalks)
-                        CreateSidewalkCorners(pts[i, j], n, s, e, w);
-                }
+                int arms = armCount[i, j];
+                if (arms >= 2 && generateSidewalks)
+                    CreateSidewalkCorners(pts[i, j], n, s, e, w);
             }
+        }
+
+        // ── Sidewalk connectivity: fill empty grid edges ──────────────
+        // For every grid edge that has NO road but has corner pads on BOTH ends,
+        // build a narrow sidewalk strip on each lateral side connecting those pads.
+        if (generateSidewalks)
+        {
+            // Vertical empty edges (run along Z): connect pts[i,k] → pts[i,k+1]
+            for (int i = 0; i <= cols; i++)
+                for (int k = 0; k < rows; k++)
+                    if (!hasV[i, k] && armCount[i, k] >= 2 && armCount[i, k + 1] >= 2)
+                    {
+                        // Two strips: west side (-X) and east side (+X) of the grid line
+                        CreateEdgeSidewalk(pts[i, k], pts[i, k + 1], isVertical: true, rightSide: false);
+                        CreateEdgeSidewalk(pts[i, k], pts[i, k + 1], isVertical: true, rightSide: true);
+                    }
+
+            // Horizontal empty edges (run along X): connect pts[k,j] → pts[k+1,j]
+            for (int j = 0; j <= rows; j++)
+                for (int k = 0; k < cols; k++)
+                    if (!hasH[k, j] && armCount[k, j] >= 2 && armCount[k + 1, j] >= 2)
+                    {
+                        // Two strips: south side (-Z) and north side (+Z) of the grid line
+                        CreateEdgeSidewalk(pts[k, j], pts[k + 1, j], isVertical: false, rightSide: false);
+                        CreateEdgeSidewalk(pts[k, j], pts[k + 1, j], isVertical: false, rightSide: true);
+                    }
         }
 
         // Buildings per block cell
@@ -858,9 +885,6 @@ public class CityGenerator : MonoBehaviour
             }
         }
 
-        // Pedestrian overbridges across roads
-        if (generateBridges && bridgeCount > 0)
-            GenerateBridges(pts, cols, rows);
     }
 
     // =========================================================
@@ -925,160 +949,96 @@ public class CityGenerator : MonoBehaviour
         go.AddComponent<MeshCollider>().sharedMesh = mesh;
     }
 
+
     // =========================================================
-    // INTERSECTION QUAD
-    // Fills the road-width square at a grid intersection point.
-    // Simple flat quad snapped to terrain — no curves, no complexity.
+    // EDGE SIDEWALK (empty grid edge connectivity)
+    // Builds a sidewalk strip along a grid edge that has NO road.
+    // The strip is placed at (halfRoadWidth + gap) offset from the
+    // grid centreline, and spans the full grid-block length so it
+    // connects the corner pads at each end seamlessly.
+    //
+    //   isVertical = true  → edge runs along Z; offset is along X
+    //   rightSide  = true  → offset in +X (vertical) or +Z (horiz)
     // =========================================================
-    void CreateIntersectionQuad(Vector3 centre, float w)
+    void CreateEdgeSidewalk(Vector3 ptA, Vector3 ptB, bool isVertical, bool rightSide)
     {
-        float hw = w * 0.5f;
-
-        // Four corners snapped to terrain
-        Vector3 SW = centre + new Vector3(-hw, 0, -hw); SW.y = TerrainY(SW, roadSurfaceOffset);
-        Vector3 SE = centre + new Vector3(hw, 0, -hw); SE.y = TerrainY(SE, roadSurfaceOffset);
-        Vector3 NW = centre + new Vector3(-hw, 0, hw); NW.y = TerrainY(NW, roadSurfaceOffset);
-        Vector3 NE = centre + new Vector3(hw, 0, hw); NE.y = TerrainY(NE, roadSurfaceOffset);
-
-        var verts = new Vector3[] { SW, SE, NW, NE };
-        var uvs = new Vector2[] {
-            new Vector2(0,0), new Vector2(1,0),
-            new Vector2(0,1), new Vector2(1,1) };
-        var tris = new int[] { 0, 2, 1, 1, 2, 3 };
-
-        var go = new GameObject($"Intersection_{roadCount}");
-        go.transform.SetParent(root, true);
-        generated.Add(go);
-
-        var mesh = new Mesh { name = go.name };
-        mesh.vertices = verts;
-        mesh.uv = uvs;
-        mesh.triangles = tris;
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
-
-        go.AddComponent<MeshFilter>().sharedMesh = mesh;
-        go.AddComponent<MeshRenderer>().sharedMaterial = roadMaterial;
-        go.AddComponent<MeshCollider>().sharedMesh = mesh;
-    }
-
-    // =========================================================
-    // PEDESTRIAN OVERBRIDGES
-    // Picks random road intersections and builds an arch bridge
-    // connecting the two sidewalks on opposite sides.
-    // =========================================================
-    void GenerateBridges(Vector3[,] pts, int cols, int rows)
-    {
-        if (roadSegsFull.Count == 0) return;
-
+        float hw = roadWidth * 0.5f;
         float gap = 0.25f;
-        float footClear = gap + sidewalkWidth + 0.4f;  // how far past road edge the foot lands
+        float swW = sidewalkWidth;
+        float sign = rightSide ? 1f : -1f;
 
-        // Shuffle road segments so bridges are spread around
-        var segs = new List<RoadSegFull>(roadSegsFull);
-        for (int i = segs.Count - 1; i > 0; i--)
+        // Along-axis: trim hw from each end so the strip starts/ends exactly
+        // where the corner pad starts (corner pad outer edge = hw + gap + swW from centre,
+        // corner pad inner edge in the along-axis direction starts at hw from centre).
+        float edgeLen = Vector3.Distance(ptA, ptB);
+        if (edgeLen < hw * 2f + 0.1f) return;  // too short
+
+        float tStart = hw / edgeLen;
+        float tEnd = 1f - hw / edgeLen;
+
+        // Perpendicular offsets: start at corner pad inner edge, end at corner pad outer edge
+        float innerOff = hw + gap;           // matches corner pad inner X/Z coords
+        float outerOff = hw + gap + swW;     // matches corner pad outer X/Z coords
+
+        const int steps = 10;
+        var innerPts = new Vector3[steps + 1];
+        var outerPts = new Vector3[steps + 1];
+
+        for (int ii = 0; ii <= steps; ii++)
         {
-            int j = rng.Next(i + 1);
-            var tmp = segs[i]; segs[i] = segs[j]; segs[j] = tmp;
-        }
+            float t = Mathf.Lerp(tStart, tEnd, ii / (float)steps);
+            Vector3 spine = Vector3.Lerp(ptA, ptB, t);
+            spine.y = TerrainY(spine, sidewalkOffset);
 
-        int placed = 0;
-        foreach (var seg in segs)
-        {
-            if (placed >= bridgeCount) break;
+            // Use terrain normal so the outward vector lies on the slope surface
+            Vector3 edgeFwd = (ptB - ptA); edgeFwd.y = 0; edgeFwd.Normalize();
+            Vector3 terrNorm = TerrainNormal(spine);
+            Vector3 sideDir = Vector3.Cross(edgeFwd, terrNorm).normalized * sign;
 
-            // Midpoint of road segment spine
-            Vector3 midSpine = (seg.a + seg.b) * 0.5f;
-            midSpine.y = TerrainY(midSpine);
+            Vector3 inner = spine + sideDir * innerOff;
+            Vector3 outer = spine + sideDir * outerOff;
+            inner.y = TerrainY(inner, sidewalkOffset);
+            outer.y = TerrainY(outer, sidewalkOffset);
 
-            // Road direction and perpendicular
-            Vector3 roadDir = (seg.b - seg.a).normalized;
-            Vector3 perpDir = Vector3.Cross(roadDir, Vector3.up).normalized;
+            innerPts[ii] = inner;
+            outerPts[ii] = outer;
 
-            // Left/right midpoints of the road edges
-            Vector3 leftMid = (seg.leftA + seg.leftB) * 0.5f;
-            Vector3 rightMid = (seg.rightA + seg.rightB) * 0.5f;
-
-            // Outward direction from road centre on each side
-            Vector3 leftOut = (leftMid - midSpine).normalized;
-            Vector3 rightOut = (rightMid - midSpine).normalized;
-
-            // Bridge feet land on sidewalk surface, past road edge
-            Vector3 halfW = (rightMid - leftMid) * 0.5f;
-            float roadRadius = halfW.magnitude;
-
-            Vector3 footA = midSpine + leftOut * (roadRadius + footClear);
-            Vector3 footB = midSpine + rightOut * (roadRadius + footClear);
-
-            float peakY = Mathf.Max(TerrainY(footA), TerrainY(footB), TerrainY(midSpine))
-                          + bridgeHeight;
-
-            CreateBridgeMesh(footA, footB, peakY, bridgeWidth);
-            placed++;
-        }
-    }
-
-    void CreateBridgeMesh(Vector3 fromGround, Vector3 toGround, float peakY, float width)
-    {
-        const int steps = 16;
-        float halfW = width * 0.5f;
-
-        // Build arch spine using a quadratic bezier lifted to peakY at midpoint
-        var spine = new Vector3[steps + 1];
-        Vector3 mid = (fromGround + toGround) * 0.5f;
-        mid.y = peakY;
-
-        // Ramp start/end points sit on the sidewalk surface
-        fromGround.y = TerrainY(fromGround, sidewalkOffset + 0.05f);
-        toGround.y = TerrainY(toGround, sidewalkOffset + 0.05f);
-
-        for (int i = 0; i <= steps; i++)
-        {
-            float t = i / (float)steps;
-            float it = 1f - t;
-            // Quadratic bezier: from → mid(peak) → to
-            spine[i] = it * it * fromGround + 2f * it * t * mid + t * t * toGround;
+            Vector3 wp = spine + sideDir * (innerOff + swW * 0.5f);
+            wp.y = TerrainY(wp, sidewalkOffset);
+            pedestrianWaypoints.Add(wp);
+            sidewalkWaypoints.Add(wp);
         }
 
         var verts = new Vector3[(steps + 1) * 2];
         var uvs = new Vector2[(steps + 1) * 2];
         var tris = new int[steps * 6];
-        float cumLen = 0f;
+        float vOff = 0f;
 
-        Vector3 bridgeDir = (toGround - fromGround).normalized;
-        Vector3 bridgeRight = Vector3.Cross(bridgeDir, Vector3.up).normalized;
-
-        for (int i = 0; i <= steps; i++)
+        for (int ii = 0; ii <= steps; ii++)
         {
-            Vector3 lp = spine[i] - bridgeRight * halfW;
-            Vector3 rp = spine[i] + bridgeRight * halfW;
+            int vi = ii * 2;
+            if (rightSide)
+            { verts[vi] = innerPts[ii]; verts[vi + 1] = outerPts[ii]; }
+            else
+            { verts[vi] = outerPts[ii]; verts[vi + 1] = innerPts[ii]; }
 
-            int vi = i * 2;
-            verts[vi] = lp;
-            verts[vi + 1] = rp;
-
-            if (i > 0) cumLen += Vector3.Distance(spine[i], spine[i - 1]);
-            float v = cumLen / width;
-            uvs[vi] = new Vector2(0f, v);
-            uvs[vi + 1] = new Vector2(1f, v);
-
-            // NPC waypoints along bridge deck
-            Vector3 wp = spine[i];
-            pedestrianWaypoints.Add(wp);
+            if (ii > 0) vOff += Vector3.Distance(innerPts[ii - 1], innerPts[ii]);
+            float v = vOff / swW;
+            uvs[vi] = new Vector2(0f, v); uvs[vi + 1] = new Vector2(1f, v);
         }
 
-        for (int i = 0; i < steps; i++)
+        for (int ii = 0; ii < steps; ii++)
         {
-            int vi = i * 2, ti = i * 6;
+            int vi = ii * 2, ti = ii * 6;
             tris[ti] = vi; tris[ti + 1] = vi + 1; tris[ti + 2] = vi + 2;
             tris[ti + 3] = vi + 1; tris[ti + 4] = vi + 3; tris[ti + 5] = vi + 2;
         }
 
-        var go = new GameObject($"PedestrianBridge_{roadCount}");
+        var go = new GameObject("SidewalkEdge");
         go.transform.SetParent(root, true);
         generated.Add(go);
 
-        var mesh = new Mesh { name = go.name };
+        var mesh = new Mesh { name = "SidewalkEdge" };
         mesh.SetVertices(verts);
         mesh.SetUVs(0, uvs);
         mesh.SetTriangles(tris, 0);
@@ -1086,35 +1046,179 @@ public class CityGenerator : MonoBehaviour
         mesh.RecalculateBounds();
 
         go.AddComponent<MeshFilter>().sharedMesh = mesh;
-        var mr = go.AddComponent<MeshRenderer>();
-        mr.sharedMaterial = bridgeMaterial != null ? bridgeMaterial : MakeBridgeMat();
+        go.AddComponent<MeshRenderer>().sharedMaterial =
+            sidewalkMaterial != null ? sidewalkMaterial : MakeSidewalkMat();
         go.AddComponent<MeshCollider>().sharedMesh = mesh;
-
-        // Simple railing posts on each side
-        CreateRailings(spine, bridgeRight, halfW);
     }
 
-    void CreateRailings(Vector3[] spine, Vector3 right, float halfW)
+
+
+    // =========================================================
+    // TREE PLACEMENT
+    // Scatters trees across the city using Poisson-disc-style
+    // rejection sampling:
+    //   - candidate point chosen randomly within city bounds
+    //   - rejected if too close to a road segment, a building,
+    //     another tree, or on too steep a slope
+    //   - if a treePrefab is assigned, instantiate it;
+    //     otherwise build a simple procedural tree from primitives
+    // =========================================================
+    void PlaceTrees()
     {
-        Material mat = bridgeMaterial != null ? bridgeMaterial : MakeBridgeMat();
-        for (int side = -1; side <= 1; side += 2)
+        if (treeCount <= 0) return;
+
+        float halfX = citySize.x * 0.5f;
+        float halfZ = citySize.y * 0.5f;
+
+        // Cache road segment endpoints for distance checks
+        var segs = roadSegments; // List<RoadSeg>
+
+        // Already-placed tree positions for spacing checks
+        var treePosns = new List<Vector3>();
+
+        // Max attempts = 20× requested count to handle dense cities
+        int attempts = treeCount * 20;
+        int placed = 0;
+
+        for (int a = 0; a < attempts && placed < treeCount; a++)
         {
-            for (int i = 0; i < spine.Length; i += 3)
+            // Random point within city bounds (world space)
+            float rx = (float)(rng.NextDouble() * 2 - 1) * halfX;
+            float rz = (float)(rng.NextDouble() * 2 - 1) * halfZ;
+            Vector3 candidate = ToTerrainCentered(new Vector3(rx, 0, rz));
+            candidate.y = TerrainY(candidate);
+
+            // ── Slope check ──────────────────────────────────
+            Vector3 normal = TerrainNormal(candidate);
+            float slope = Vector3.Angle(normal, Vector3.up);
+            if (slope > maxSlope) continue;
+
+            // ── Clearance from roads ──────────────────────────
+            bool tooCloseToRoad = false;
+            foreach (var seg in segs)
             {
-                var post = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                post.name = "Railing";
-                post.transform.SetParent(root, true);
-                post.transform.localScale = new Vector3(0.15f, 0.9f, 0.15f);
-                Vector3 pos = spine[i] + right * (halfW + 0.1f) * side;
-                pos.y += 0.45f;
-                post.transform.position = pos;
-
-                var mr = post.GetComponent<MeshRenderer>();
-                if (mr) mr.sharedMaterial = mat;
-
-                Destroy(post.GetComponent<Collider>());
-                generated.Add(post);
+                float d = DistancePointToSegmentXZ(
+                    new Vector2(candidate.x, candidate.z),
+                    new Vector2(seg.a.x, seg.a.z),
+                    new Vector2(seg.b.x, seg.b.z));
+                if (d < treeClearanceFromRoad) { tooCloseToRoad = true; break; }
             }
+            if (tooCloseToRoad) continue;
+
+            // ── Spacing from other trees ──────────────────────
+            bool tooClose = false;
+            foreach (var tp in treePosns)
+            {
+                if (Vector3.Distance(
+                        new Vector3(candidate.x, 0, candidate.z),
+                        new Vector3(tp.x, 0, tp.z)) < treeMinSpacing)
+                { tooClose = true; break; }
+            }
+            if (tooClose) continue;
+
+            // ── Place tree ────────────────────────────────────
+            SpawnTree(candidate);
+            treePosns.Add(candidate);
+            placed++;
         }
+
+        Debug.Log($"CityGenerator: Placed {placed} trees.");
     }
+
+    // Point-to-segment distance in XZ plane
+    float DistancePointToSegmentXZ(Vector2 p, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float lenSq = ab.sqrMagnitude;
+        if (lenSq < 0.0001f) return Vector2.Distance(p, a);
+        float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / lenSq);
+        Vector2 proj = a + t * ab;
+        return Vector2.Distance(p, proj);
+    }
+
+    void SpawnTree(Vector3 pos)
+    {
+        GameObject treeGo;
+
+        // Pick a random prefab from the list (if any are assigned)
+        GameObject chosenPrefab = null;
+        if (treePrefabs != null && treePrefabs.Count > 0)
+        {
+            // filter out nulls
+            var valid = treePrefabs.FindAll(p => p != null);
+            if (valid.Count > 0)
+                chosenPrefab = valid[rng.Next(valid.Count)];
+        }
+
+        if (chosenPrefab != null)
+        {
+            float treeScale = 1.2f + (float)rng.NextDouble() * 0.8f;  // 1.2 – 2.0×
+            treeGo = (GameObject)UnityEngine.Object.Instantiate(
+                chosenPrefab, pos,
+                Quaternion.Euler(0, (float)(rng.NextDouble() * 360), 0));
+            treeGo.name = "Tree";
+            treeGo.transform.SetParent(root, true);
+            treeGo.transform.localScale = Vector3.one * treeScale;
+        }
+        else
+        {
+            // Procedural tree: trunk (cylinder) + canopy (sphere)
+            treeGo = new GameObject("Tree");
+            treeGo.transform.SetParent(root, true);
+            treeGo.transform.position = pos;
+
+            // Random size variation
+            float scale = 1.2f + (float)rng.NextDouble() * 0.8f;  // 1.2 – 2.0×
+
+            // Trunk
+            var trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            trunk.name = "Trunk";
+            trunk.transform.SetParent(treeGo.transform, false);
+            float trunkH = 2.5f * scale;
+            trunk.transform.localScale = new Vector3(0.25f * scale, trunkH * 0.5f, 0.25f * scale);
+            trunk.transform.localPosition = new Vector3(0, trunkH * 0.5f, 0);
+            Destroy(trunk.GetComponent<Collider>());
+            ApplyTreeMat(trunk, new Color(0.38f, 0.24f, 0.12f));  // brown bark
+
+            // Canopy (layered spheres for a rounder look)
+            float canopyY = trunkH + 0.5f * scale;
+            SpawnCanopySphere(treeGo.transform, new Vector3(0, canopyY, 0), 1.5f * scale, RandomGreen());
+            SpawnCanopySphere(treeGo.transform, new Vector3(0, canopyY + 0.9f * scale, 0), 1.1f * scale, RandomGreen());
+            SpawnCanopySphere(treeGo.transform, new Vector3(0.4f * scale, canopyY + 0.3f * scale, 0), 0.9f * scale, RandomGreen());
+            SpawnCanopySphere(treeGo.transform, new Vector3(-0.3f * scale, canopyY + 0.4f * scale, 0.3f * scale), 0.85f * scale, RandomGreen());
+
+            // Random Y rotation
+            treeGo.transform.rotation = Quaternion.Euler(0, (float)(rng.NextDouble() * 360), 0);
+        }
+
+        generated.Add(treeGo);
+    }
+
+    void SpawnCanopySphere(Transform parent, Vector3 localPos, float radius, Color color)
+    {
+        var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        sphere.name = "Canopy";
+        sphere.transform.SetParent(parent, false);
+        sphere.transform.localPosition = localPos;
+        sphere.transform.localScale = Vector3.one * radius * 2f;
+        Destroy(sphere.GetComponent<Collider>());
+        ApplyTreeMat(sphere, color);
+    }
+
+    // Slight random variation in green so canopy layers look natural
+    Color RandomGreen()
+    {
+        float g = 0.38f + (float)rng.NextDouble() * 0.22f;   // 0.38 – 0.60
+        float r = 0.10f + (float)rng.NextDouble() * 0.12f;   // slight yellowing
+        return new Color(r, g, 0.08f);
+    }
+
+    void ApplyTreeMat(GameObject go, Color color)
+    {
+        var mr = go.GetComponent<MeshRenderer>();
+        if (mr == null) return;
+        var mat = new Material(FindLitShader()) { color = color };
+        mr.sharedMaterial = mat;
+    }
+
 }

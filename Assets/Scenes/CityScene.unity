@@ -845,11 +845,14 @@ MonoBehaviour:
   sidewalkWidth: 2
   sidewalkOffset: 0.05
   sidewalkMaterial: {fileID: 2100000, guid: 319eceb680f53f94a9f35becbdbd70bc, type: 2}
-  generateBridges: 1
-  bridgeCount: 30
-  bridgeWidth: 3
-  bridgeHeight: 5
-  bridgeMaterial: {fileID: 2100000, guid: 6915e1e58f0a0b94bb7c3790e94fb317, type: 2}
+  generateTrees: 1
+  treeCount: 300
+  treeMinSpacing: 4
+  treeClearanceFromRoad: 6
+  treePrefabs:
+  - {fileID: 192044, guid: 19682540d8a014522a319b1cf788aee2, type: 3}
+  - {fileID: 191266, guid: c44bd9bdc114d4a60932c0087d9d1732, type: 3}
+  - {fileID: 137650, guid: 826b6a0b570e8460990010fa615b5a2a, type: 3}
   pedestrianWaypoints: []
   sidewalkWaypoints: []
   roadBlocks:
@@ -1345,6 +1348,9 @@ MonoBehaviour:
   pitch: 85
   smoothFollow: 1
   smoothTime: 0.15
+  lodBias: 3
+  shadowDistance: 500
+  farClipPlane: 8000
 --- !u!114 &906441406
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1429,7 +1435,7 @@ Camera:
     width: 1
     height: 1
   near clip plane: 0.3
-  far clip plane: 5000
+  far clip plane: 8000
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -1457,7 +1463,7 @@ Transform:
   m_GameObject: {fileID: 906441404}
   serializedVersion: 2
   m_LocalRotation: {x: 0.6755902, y: 0, z: 0, w: 0.7372774}
-  m_LocalPosition: {x: 632.7307, y: 544, z: 1024}
+  m_LocalPosition: {x: 767.99634, y: 544, z: 424.68448}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1548,8 +1554,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CityPathFinderUI
   pathfinder: {fileID: 1718719895}
-  city: {fileID: 0}
-  terrain: {fileID: 0}
+  city: {fileID: 870816670}
+  terrain: {fileID: 10844433}
   uiFont: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
   panelWidth: 340
   uiScale: 1.5
@@ -1796,11 +1802,11 @@ MonoBehaviour:
   sidewalkWidth: 2
   sidewalkOffset: 0.08
   sidewalkMaterial: {fileID: 0}
-  generateBridges: 1
-  bridgeCount: 3
-  bridgeWidth: 3
-  bridgeHeight: 5
-  bridgeMaterial: {fileID: 0}
+  generateTrees: 1
+  treeCount: 200
+  treeMinSpacing: 4
+  treeClearanceFromRoad: 6
+  treePrefabs: []
   pedestrianWaypoints: []
   sidewalkWaypoints: []
   roadBlocks: []
@@ -1888,6 +1894,7 @@ MonoBehaviour:
   questSystem: {fileID: 470433390}
   uiFont: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
   playerCamera: {fileID: 0}
+  playerTransform: {fileID: 0}
 --- !u!114 &1906573785
 MonoBehaviour:
   m_ObjectHideFlags: 0
