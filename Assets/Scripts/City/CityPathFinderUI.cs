@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -23,6 +23,10 @@ public class CityPathfinderUI : MonoBehaviour
     private Text lengthText;
     private Dictionary<CityPathfinder.PathAlgo, Image> algoImgs = new();
 
+    // ── Show / Hide path toggle state ──
+    private bool pathVisible = true;
+    private Text showHideBtnText;
+
     // =========================================================
     void Awake()
     {
@@ -46,7 +50,6 @@ public class CityPathfinderUI : MonoBehaviour
         s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         s.referenceResolution = new Vector2(1920, 1080);
 
-        // global scale
         transform.localScale = Vector3.one * uiScale;
 
         foreach (Transform t in transform)
@@ -70,8 +73,17 @@ public class CityPathfinderUI : MonoBehaviour
 
         AddSpacer(left, 8);
 
-        AddButton(left, "RANDOM START", () => RandomizePoint(true));
-        AddButton(left, "RANDOM END", () => RandomizePoint(false));
+        // ── FIXED: RandomizePoint now works — road segments are loaded first ──
+        AddButton(left, "RANDOM START", () =>
+        {
+            EnsureRoadsLoaded();
+            RandomizePoint(true);
+        });
+        AddButton(left, "RANDOM END", () =>
+        {
+            EnsureRoadsLoaded();
+            RandomizePoint(false);
+        });
 
         AddSpacer(left, 6);
 
@@ -79,8 +91,14 @@ public class CityPathfinderUI : MonoBehaviour
         {
             pathfinder.LoadRoads();
             pathfinder.GeneratePath();
+            // Make sure the path is visible after calculating
+            SetPathVisible(true);
             UpdateLength();
         });
+
+        // ── Show / Hide path — single toggle button ──
+        var showHideBtn = AddButton(left, "HIDE PATH", TogglePathVisibility);
+        showHideBtnText = showHideBtn.GetComponentInChildren<Text>();
 
         lengthText = AddLabel(left, "Length: -");
 
@@ -108,6 +126,7 @@ public class CityPathfinderUI : MonoBehaviour
         {
             city.ClearCityHard();
             pathfinder.ResetPathfinder();
+            UpdateLength();
         });
 
         AddHeader(right, "ROADBLOCKS");
@@ -128,7 +147,6 @@ public class CityPathfinderUI : MonoBehaviour
             city.GenerateCity();
             pathfinder.LoadRoads();
         });
-
 
         // -------- TERRAIN --------
         if (terrain && terrain.settings)
@@ -152,18 +170,67 @@ public class CityPathfinderUI : MonoBehaviour
     }
 
     // =========================================================
+    // SHOW / HIDE PATH
+    // =========================================================
+
+    /// <summary>
+    /// Toggles path gizmo visibility. The button label flips between
+    /// "HIDE PATH" (path is showing) and "SHOW PATH" (path is hidden).
+    /// </summary>
+    void TogglePathVisibility()
+    {
+        SetPathVisible(!pathVisible);
+    }
+
+    void SetPathVisible(bool visible)
+    {
+        pathVisible = visible;
+        pathfinder.drawGizmos = visible;
+
+        if (showHideBtnText != null)
+            showHideBtnText.text = visible ? "HIDE PATH" : "SHOW PATH";
+    }
+
+    // =========================================================
     // RANDOM START / END
     // =========================================================
+
+    /// <summary>
+    /// Makes sure the pathfinder has road segments before we try to
+    /// pick a random one. Addresses the bug where the button did
+    /// nothing when the roads hadn't been loaded yet.
+    /// </summary>
+    void EnsureRoadsLoaded()
+    {
+        var segs = city.GetRoadSegments();
+        if (segs == null || segs.Count == 0)
+        {
+            // Nothing generated yet — nothing to randomise on
+            Debug.LogWarning("CityPathfinderUI: No road segments available. Generate the city first.");
+            return;
+        }
+        pathfinder.LoadRoads();
+    }
+
     void RandomizePoint(bool start)
     {
         var segs = city.GetRoadSegments();
-        if (segs == null || segs.Count == 0) return;
+        if (segs == null || segs.Count == 0)
+        {
+            Debug.LogWarning("CityPathfinderUI: No road segments — generate city first.");
+            return;
+        }
 
+        // Pick a random segment and a random position along it
         var seg = segs[UnityEngine.Random.Range(0, segs.Count)];
         Vector3 pos = Vector3.Lerp(seg.start, seg.end, UnityEngine.Random.value);
 
         if (start) pathfinder.SetStart(pos);
         else pathfinder.SetEnd(pos);
+
+        // Auto-show the path when a new point is picked
+        SetPathVisible(true);
+        UpdateLength();
     }
 
     // =========================================================
@@ -320,6 +387,8 @@ public class CityPathfinderUI : MonoBehaviour
 
     void UpdateLength()
     {
+        if (lengthText == null) return;
+
         var f = typeof(CityPathfinder).GetField("pathPoints",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
