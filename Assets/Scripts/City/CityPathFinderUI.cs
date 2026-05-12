@@ -27,6 +27,10 @@ public class CityPathfinderUI : MonoBehaviour
     private bool pathVisible = true;
     private Text showHideBtnText;
 
+    // ── Show / Hide road arrows toggle state ──
+    private bool arrowsVisible = true;
+    private Text arrowToggleBtnText;
+
     // =========================================================
     void Awake()
     {
@@ -73,7 +77,6 @@ public class CityPathfinderUI : MonoBehaviour
 
         AddSpacer(left, 8);
 
-        // ── FIXED: RandomizePoint now works — road segments are loaded first ──
         AddButton(left, "RANDOM START", () =>
         {
             EnsureRoadsLoaded();
@@ -91,14 +94,17 @@ public class CityPathfinderUI : MonoBehaviour
         {
             pathfinder.LoadRoads();
             pathfinder.GeneratePath();
-            // Make sure the path is visible after calculating
             SetPathVisible(true);
             UpdateLength();
         });
 
-        // ── Show / Hide path — single toggle button ──
+        // ── Show / Hide path line ──
         var showHideBtn = AddButton(left, "HIDE PATH", TogglePathVisibility);
         showHideBtnText = showHideBtn.GetComponentInChildren<Text>();
+
+        // ── Show / Hide road arrows ──
+        var arrowToggleBtn = AddButton(left, "HIDE ROAD ARROWS", ToggleArrowVisibility);
+        arrowToggleBtnText = arrowToggleBtn.GetComponentInChildren<Text>();
 
         lengthText = AddLabel(left, "Length: -");
 
@@ -170,13 +176,9 @@ public class CityPathfinderUI : MonoBehaviour
     }
 
     // =========================================================
-    // SHOW / HIDE PATH
+    // SHOW / HIDE PATH LINE
     // =========================================================
 
-    /// <summary>
-    /// Toggles path gizmo visibility. The button label flips between
-    /// "HIDE PATH" (path is showing) and "SHOW PATH" (path is hidden).
-    /// </summary>
     void TogglePathVisibility()
     {
         SetPathVisible(!pathVisible);
@@ -192,20 +194,32 @@ public class CityPathfinderUI : MonoBehaviour
     }
 
     // =========================================================
+    // SHOW / HIDE ROAD ARROWS
+    // =========================================================
+
+    void ToggleArrowVisibility()
+    {
+        SetArrowsVisible(!arrowsVisible);
+    }
+
+    void SetArrowsVisible(bool visible)
+    {
+        arrowsVisible = visible;
+        pathfinder.showArrows = visible;
+
+        if (arrowToggleBtnText != null)
+            arrowToggleBtnText.text = visible ? "HIDE ROAD ARROWS" : "SHOW ROAD ARROWS";
+    }
+
+    // =========================================================
     // RANDOM START / END
     // =========================================================
 
-    /// <summary>
-    /// Makes sure the pathfinder has road segments before we try to
-    /// pick a random one. Addresses the bug where the button did
-    /// nothing when the roads hadn't been loaded yet.
-    /// </summary>
     void EnsureRoadsLoaded()
     {
         var segs = city.GetRoadSegments();
         if (segs == null || segs.Count == 0)
         {
-            // Nothing generated yet — nothing to randomise on
             Debug.LogWarning("CityPathfinderUI: No road segments available. Generate the city first.");
             return;
         }
@@ -221,14 +235,12 @@ public class CityPathfinderUI : MonoBehaviour
             return;
         }
 
-        // Pick a random segment and a random position along it
         var seg = segs[UnityEngine.Random.Range(0, segs.Count)];
         Vector3 pos = Vector3.Lerp(seg.start, seg.end, UnityEngine.Random.value);
 
         if (start) pathfinder.SetStart(pos);
         else pathfinder.SetEnd(pos);
 
-        // Auto-show the path when a new point is picked
         SetPathVisible(true);
         UpdateLength();
     }

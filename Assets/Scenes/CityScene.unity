@@ -320,7 +320,10 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1076196169278958764, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
       insertIndex: -1
       addedObject: {fileID: 790145324}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 406654488547587606, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 868681152}
   m_SourcePrefab: {fileID: 100100000, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
 --- !u!1 &410087039
 GameObject:
@@ -769,10 +772,27 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::QuestSystem
   playerTransform: {fileID: 720985875}
   cityGenerator: {fileID: 870816670}
-  npcSpawner: {fileID: 0}
+  npcSpawner: {fileID: 443414055}
+  carControl: {fileID: 868681153}
   checkInterval: 0.3
   questBoardSize: 8
   questSpawnRadius: 60
+  autoRestartDelay: 6
+  showPathArrows: 1
+  pathfinder: {fileID: 1718719895}
+  arrowSpacing: 14
+  arrowStartOffset: 6
+  arrowHalfWidth: 1.6
+  arrowLength: 3
+  arrowHeight: 0.35
+  arrowColor: {r: 1, g: 0.85, b: 0.1, a: 0.92}
+  arrowOutlineColor: {r: 0, g: 0, b: 0, a: 0.55}
+  arrowPulseSpeed: 1.4
+  maxArrows: 18
+  bonusTimeThreshold: 60
+  penaltyTimeThreshold: 300
+  maxBonusMultiplier: 1.5
+  minPenaltyMultiplier: 0.5
 --- !u!1 &560347696
 GameObject:
   m_ObjectHideFlags: 0
@@ -835,6 +855,11 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &667586263 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 406654488547587606, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
+  m_PrefabInstance: {fileID: 23132542}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &720985875 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: e47e87315effe894e85960f2e2349da7, type: 3}
@@ -1040,6 +1065,44 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 1076196169278958764, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
   m_PrefabInstance: {fileID: 23132542}
   m_PrefabAsset: {fileID: 0}
+--- !u!54 &868681150 stripped
+Rigidbody:
+  m_CorrespondingSourceObject: {fileID: 406654488547587608, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
+  m_PrefabInstance: {fileID: 23132542}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &868681152
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 667586263}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 769dc99bf0ceef647b597e8551f1b2fd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CarDustParticles
+  carRigidbody: {fileID: 868681150}
+  exhaustMaterial: {fileID: 0}
+  exhaustOffset: {x: -0.4, y: 0.15, z: -2.5}
+  idleEmissionRate: 8
+  maxExtraEmission: 40
+  maxSpeed: 20
+  particleLifetime: 1.4
+  maxParticleSize: 3.5
+  smokeColorStart: {r: 0.25, g: 0.25, b: 0.25, a: 0.55}
+  smokeColorEnd: {r: 0.7, g: 0.7, b: 0.7, a: 0}
+--- !u!114 &868681153 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 406654488547587609, guid: e2c4287a936a99c4d9988378e62d0060, type: 3}
+  m_PrefabInstance: {fileID: 23132542}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 667586263}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 63ee48a23b158a64eba5fad2cab6bd7a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &870816669
 GameObject:
   m_ObjectHideFlags: 0
@@ -1550,6 +1613,47 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!21 &886108909
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Sprites/Default
+  m_Shader: {fileID: 10753, guid: 0000000000000000f000000000000000, type: 0}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _AlphaTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - PixelSnap: 0
+    - _EnableExternalAlpha: 0
+    m_Colors:
+    - _Color: {r: 1, g: 0, b: 0, a: 1}
+    - _Flip: {r: 1, g: 1, b: 1, a: 1}
+    - _RendererColor: {r: 1, g: 1, b: 1, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!1 &906441404
 GameObject:
   m_ObjectHideFlags: 0
@@ -1712,7 +1816,7 @@ Transform:
   m_GameObject: {fileID: 906441404}
   serializedVersion: 2
   m_LocalRotation: {x: 0.6755902, y: 0, z: 0, w: 0.7372774}
-  m_LocalPosition: {x: 579.8673, y: 544, z: 303.5651}
+  m_LocalPosition: {x: 694.68463, y: 544, z: 547.3942}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2000,6 +2104,7 @@ GameObject:
   - component: {fileID: 1718719896}
   - component: {fileID: 1718719895}
   - component: {fileID: 1718719897}
+  - component: {fileID: 1718719898}
   m_Layer: 0
   m_Name: PathFinder
   m_TagString: Untagged
@@ -2027,10 +2132,15 @@ MonoBehaviour:
   algorithm: 1
   depthLimit: 50
   breadthLimit: 50
+  showArrows: 1
   lineHeight: 3
   lineWidth: 5
   sphereRadius: 10
   pathColor: {r: 1, g: 0, b: 0, a: 1}
+  arrowColor: {r: 1, g: 0.85, b: 0.1, a: 1}
+  arrowSpacing: 12
+  arrowHalfWidth: 1.8
+  arrowLength: 3.5
 --- !u!4 &1718719896
 Transform:
   m_ObjectHideFlags: 0
@@ -2121,6 +2231,123 @@ MonoBehaviour:
   - {fileID: 1589469734983728, guid: 8b50b8b0ec84e0a4e830e2bfafbda8c3, type: 3}
   - {fileID: 1353471384135722, guid: e07e5d48f42ee1e429c24a82c4e4a4fd, type: 3}
   - {fileID: 1026770149594144, guid: 56352147ca68a3c47befb3ef1482ff2a, type: 3}
+--- !u!120 &1718719898
+LineRenderer:
+  serializedVersion: 3
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1718719894}
+  m_Enabled: 0
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 0
+  m_LightProbeUsage: 0
+  m_ReflectionProbeUsage: 0
+  m_RayTracingMode: 0
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 886108909}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_Positions: []
+  m_Parameters:
+    serializedVersion: 3
+    widthMultiplier: 1
+    widthCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0.5
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      - serializedVersion: 3
+        time: 1
+        value: 0.5
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    colorGradient:
+      serializedVersion: 2
+      key0: {r: 1, g: 1, b: 1, a: 1}
+      key1: {r: 1, g: 1, b: 1, a: 1}
+      key2: {r: 0, g: 0, b: 0, a: 0}
+      key3: {r: 0, g: 0, b: 0, a: 0}
+      key4: {r: 0, g: 0, b: 0, a: 0}
+      key5: {r: 0, g: 0, b: 0, a: 0}
+      key6: {r: 0, g: 0, b: 0, a: 0}
+      key7: {r: 0, g: 0, b: 0, a: 0}
+      ctime0: 0
+      ctime1: 65535
+      ctime2: 0
+      ctime3: 0
+      ctime4: 0
+      ctime5: 0
+      ctime6: 0
+      ctime7: 0
+      atime0: 0
+      atime1: 65535
+      atime2: 0
+      atime3: 0
+      atime4: 0
+      atime5: 0
+      atime6: 0
+      atime7: 0
+      m_Mode: 0
+      m_ColorSpace: -1
+      m_NumColorKeys: 2
+      m_NumAlphaKeys: 2
+    numCornerVertices: 4
+    numCapVertices: 4
+    alignment: 0
+    textureMode: 0
+    textureScale: {x: 1, y: 1}
+    shadowBias: 0.5
+    generateLightingData: 0
+  m_UseWorldSpace: 1
+  m_Loop: 0
+  m_ApplyActiveColorSpace: 1
 --- !u!1 &1906573782
 GameObject:
   m_ObjectHideFlags: 0
@@ -2174,8 +2401,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::QuestUI
   questSystem: {fileID: 470433390}
   uiFont: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
-  playerCamera: {fileID: 0}
-  playerTransform: {fileID: 0}
+  carControl: {fileID: 868681153}
+  playerCamera: {fileID: 441447515}
+  playerTransform: {fileID: 2041270684}
 --- !u!114 &1906573785
 MonoBehaviour:
   m_ObjectHideFlags: 0

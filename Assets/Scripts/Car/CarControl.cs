@@ -40,6 +40,9 @@ public class CarControl : MonoBehaviour
     private bool isDriving = false;
     private bool isRespawning = false;
 
+    /// <summary>True while the player is seated and controlling this car.</summary>
+    public bool IsDriving => isDriving;
+
     // ─────────────────────────────────────────────────────
     void Start()
     {
@@ -103,14 +106,10 @@ public class CarControl : MonoBehaviour
     }
 
     // ── Car respawn ───────────────────────────────────────
-    // Respawns the car near the player's current position.
-    // Walks 8 directions around the player at respawnPlayerOffset
-    // radius, raycasting downward each time to find solid terrain.
     IEnumerator RespawnCar()
     {
         isRespawning = true;
 
-        // If player was driving, eject them safely before moving the car
         if (isDriving)
         {
             isDriving = false;
@@ -122,7 +121,6 @@ public class CarControl : MonoBehaviour
 
         Vector3 spawnPos = FindTerrainSpawnNearPlayer();
 
-        // Teleport cleanly with no residual velocity
         rb.isKinematic = true;
         transform.position = spawnPos;
         transform.rotation = Quaternion.Euler(0f, playerObject.transform.eulerAngles.y, 0f);
@@ -133,9 +131,6 @@ public class CarControl : MonoBehaviour
         isRespawning = false;
     }
 
-    // Tries 8 evenly-spaced directions around the player at
-    // respawnPlayerOffset distance, raycasting down to find terrain.
-    // Returns the best valid position, or falls back above the player.
     Vector3 FindTerrainSpawnNearPlayer()
     {
         Vector3 playerPos = playerObject.transform.position;
@@ -146,7 +141,6 @@ public class CarControl : MonoBehaviour
             Vector3 dir = Quaternion.Euler(0f, angle, 0f) * Vector3.forward;
             Vector3 candidate = playerPos + dir * respawnPlayerOffset;
 
-            // Cast down from well above to find any ground surface
             if (Physics.Raycast(candidate + Vector3.up * 60f, Vector3.down, out RaycastHit hit, 300f))
             {
                 Vector3 result = hit.point + Vector3.up * respawnHeightOffset;
@@ -155,7 +149,6 @@ public class CarControl : MonoBehaviour
             }
         }
 
-        // Fallback: directly above the player
         if (Physics.Raycast(playerPos + Vector3.up * 60f, Vector3.down, out RaycastHit fbHit, 300f))
             return fbHit.point + Vector3.up * respawnHeightOffset;
 
@@ -211,7 +204,6 @@ public class CarControl : MonoBehaviour
             }
         }
 
-        // Fallback: above the car
         Vector3 fallback = transform.position + Vector3.up * 3f;
         if (Physics.Raycast(fallback + Vector3.up * 20f, Vector3.down, out RaycastHit fbHit, 50f))
             fallback.y = fbHit.point.y + 0.1f;
@@ -272,7 +264,6 @@ public class CarControl : MonoBehaviour
     {
         Gizmos.color = new Color(0f, 1f, 0.4f, 0.3f);
         Gizmos.DrawWireSphere(transform.position, enterRadius);
-        // Show respawn search radius around player
         if (playerObject != null)
         {
             Gizmos.color = new Color(1f, 0.6f, 0f, 0.25f);
