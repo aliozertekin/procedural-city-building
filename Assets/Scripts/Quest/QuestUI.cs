@@ -824,18 +824,58 @@ public class QuestUI : MonoBehaviour
         if (playerCamera == null) return;
 
         Vector3 target = aq.steps[aq.currentStep].worldPosition;
-        Vector3 playerPos = playerCamera.transform.position;
+
+        // Resolve origin every frame with an explicit priority chain:
+        //   1. Car transform while driving (player object is deactivated)
+        //   2. Player transform on foot
+        //   3. Camera position as last resort
+        // This ensures BOTH the arrow angle AND the metre counter always
+        // reflect the actual moving vehicle or character, not a stale position.
+        if (carControl == null) carControl = FindFirstObjectByType<CarControl>();
+        Vector3 playerPos;
+        if (carControl != null && carControl.IsDriving)
+            playerPos = carControl.transform.position;
+        else if (playerTransform != null && playerTransform.gameObject.activeInHierarchy)
+            playerPos = playerTransform.position;
+        else
+            playerPos = playerCamera.transform.position;
 
         float dist = Vector2.Distance(
             new Vector2(playerPos.x, playerPos.z),
             new Vector2(target.x, target.z));
 
         Vector3 toTarget = new Vector3(target.x - playerPos.x, 0, target.z - playerPos.z).normalized;
-        Vector3 camFwd = playerCamera.transform.forward; camFwd.y = 0; camFwd.Normalize();
-        Vector3 camRight = playerCamera.transform.right; camRight.y = 0; camRight.Normalize();
 
-        float angle = Mathf.Atan2(Vector3.Dot(toTarget, camRight),
-                                   Vector3.Dot(toTarget, camFwd)) * Mathf.Rad2Deg;
+        // When driving the player camera is deactivated, so its .forward is stale and frozen.
+        // Use the car's own heading for compass orientation while driving,
+        // and fall back to the active camera when on foot.
+        Vector3 refFwd, refRight;
+        if (carControl != null && carControl.IsDriving)
+        {
+            refFwd = carControl.transform.forward; refFwd.y = 0;
+            refRight = carControl.transform.right; refRight.y = 0;
+        }
+        else
+        {
+            refFwd = playerCamera.transform.forward; refFwd.y = 0;
+            refRight = playerCamera.transform.right; refRight.y = 0;
+        }
+
+        // Guard: if the reference vector is near-zero (camera pointing straight down, etc.)
+        // fall back to world axes so the arrow never disappears.
+        if (refFwd.sqrMagnitude < 0.001f)
+        {
+            refFwd = Vector3.forward;
+            refRight = Vector3.right;
+        }
+        else
+        {
+            refFwd.Normalize();
+            refRight.Normalize();
+        }
+
+        float angle = Mathf.Atan2(Vector3.Dot(toTarget, refRight),
+                                   Vector3.Dot(toTarget, refFwd)) * Mathf.Rad2Deg;
         compassArrowRT.localRotation = Quaternion.Euler(0, 0, -angle);
 
         if (compassDistTxt != null)
@@ -892,18 +932,22 @@ public class QuestUI : MonoBehaviour
     /// <summary>
     /// Returns the car transform while driving (player object is inactive),
     /// otherwise falls back to the FPS controller or cached playerTransform.
+    /// Lazily re-finds CarControl if the reference was lost or never assigned.
     /// </summary>
     Transform GetActiveNavigationTransform()
     {
-        // Car takes priority when driving
+        // Lazy re-find in case the inspector field was left empty or reference was lost.
+        if (carControl == null) carControl = FindFirstObjectByType<CarControl>();
+
+        // Car takes priority when driving.
         if (carControl != null && carControl.IsDriving)
             return carControl.transform;
 
-        // On foot — try cached playerTransform first
+        // On foot — try cached playerTransform first.
         if (playerTransform != null && playerTransform.gameObject.activeInHierarchy)
             return playerTransform;
 
-        // Auto-discover FPS controller as fallback
+        // Auto-discover FPS controller as fallback.
         var fps = FindFirstObjectByType<FirstPersonController>();
         if (fps != null)
         {

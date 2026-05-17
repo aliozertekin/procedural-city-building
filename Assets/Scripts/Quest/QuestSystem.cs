@@ -155,11 +155,16 @@ public class QuestSystem : MonoBehaviour
     private float arrowPulseTimer;
 
     // ── Navigation transform (player on foot OR car while driving) ──
-    /// <summary>Returns the car transform while driving, otherwise the player transform.</summary>
+    /// <summary>
+    /// Returns the car transform while driving, otherwise the player transform.
+    /// Lazily re-finds CarControl if the reference was lost or never assigned,
+    /// so arrows keep updating even if the inspector field was left empty.
+    /// </summary>
     private Transform NavigationTransform
     {
         get
         {
+            if (carControl == null) carControl = FindFirstObjectByType<CarControl>();
             if (carControl != null && carControl.IsDriving) return carControl.transform;
             return playerTransform;
         }
